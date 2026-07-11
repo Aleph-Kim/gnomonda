@@ -24,6 +24,8 @@ const state = {
     pickerSnapshot: null, // pendingTime value to restore on cancel
     pendingTime: { check_in: null, check_out: null }, // 'HH:MM' | null
     isForecast: { check_in: false, check_out: false }, // pendingTime 값이 예측값인지 여부
+    todayRecord: null, // 오늘 실제 기록 (조회 중인 달과 무관하게 항상 오늘 기준)
+    todayForecast: { check_in_time: null, check_out_time: null },
 };
 
 const root = document.getElementById('attendance-calendar-root');
@@ -74,6 +76,26 @@ async function fetchForecast(date) {
     if (!res.ok) throw new Error('예측 시간을 불러오지 못했습니다.');
 
     return res.json();
+}
+
+// 조회 중인 달과 무관하게 항상 '오늘' 기준 실제 기록/예측을 갱신한다 (요약 카드용).
+async function refreshTodaySummary() {
+    try {
+        const records = await fetchRecords(today.getFullYear(), today.getMonth() + 1);
+        state.todayRecord = records.find((r) => r.date === todayString()) ?? null;
+    } catch {
+        state.todayRecord = null;
+    }
+
+    if (!state.todayRecord?.check_in_time || !state.todayRecord?.check_out_time) {
+        try {
+            state.todayForecast = await fetchForecast(todayString());
+        } catch {
+            // 예측 실패 시 조용히 무시
+        }
+    }
+
+    render();
 }
 
 function recordFor(date) {
@@ -387,6 +409,33 @@ function renderMeetingRow() {
     `;
 }
 
+function renderTodaySummary() {
+    const checkIn = state.todayRecord?.check_in_time ?? state.todayForecast.check_in_time;
+    const checkOut = state.todayRecord?.check_out_time ?? state.todayForecast.check_out_time;
+
+    if (!checkIn && !checkOut) return '';
+
+    const checkInIsForecast = !state.todayRecord?.check_in_time && Boolean(state.todayForecast.check_in_time);
+    const checkOutIsForecast = !state.todayRecord?.check_out_time && Boolean(state.todayForecast.check_out_time);
+
+    const item = (label, value, isForecast) => `
+        <div>
+            <p class="text-[12px] font-medium text-[#6B6B70]">${isForecast ? `예상 ${label}` : label}</p>
+            <p class="text-[22px] font-semibold tabular-nums ${isForecast ? 'text-[#8B5CF6]' : 'text-[#1A1A1A]'}">${value ?? '--:--'}</p>
+        </div>
+    `;
+
+    return `
+        <div class="mb-4 rounded-[20px] bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_8px_24px_-12px_rgba(0,0,0,0.12)] sm:p-6">
+            <p class="mb-3 text-[13px] font-medium text-[#6B6B70]">오늘 · ${formatDateHeader(todayString())}</p>
+            <div class="flex items-center gap-8">
+                ${item('출근', checkIn, checkInIsForecast)}
+                ${item('퇴근', checkOut, checkOutIsForecast)}
+            </div>
+        </div>
+    `;
+}
+
 function renderDatePanel() {
     if (!state.selectedDate) return '';
 
@@ -421,6 +470,7 @@ function renderDatePanel() {
 
 function render() {
     root.innerHTML = `
+        ${renderTodaySummary()}
         <div class="rounded-[20px] bg-white p-6 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_8px_24px_-12px_rgba(0,0,0,0.12)] sm:p-8">
             <div class="flex items-center justify-between">
                 <h1 class="text-[22px] font-semibold text-[#1A1A1A]">${state.year}년 ${state.month}월</h1>
@@ -487,6 +537,7 @@ function render() {
 
             await saveRecord(state.selectedDate, type, time);
             await loadMonth();
+            await refreshTodaySummary();
         });
     });
 
@@ -496,6 +547,7 @@ function render() {
             await deleteRecord(el.dataset.id, type);
             state.pendingTime[type] = DEFAULT_TIME[type];
             await loadMonth();
+            await refreshTodaySummary();
         });
     });
 
@@ -505,6 +557,7 @@ function render() {
             const next = !record?.meeting;
             await saveRecord(state.selectedDate, 'meeting', next);
             await loadMonth();
+            await refreshTodaySummary();
         });
     });
 
@@ -523,3 +576,4 @@ function render() {
 }
 
 loadMonth();
+refreshTodaySummary();
