@@ -10,7 +10,7 @@
 
         @vite(['resources/css/app.css', 'resources/js/attendance-calendar.js'])
     </head>
-    <body class="bg-gray-50 text-gray-900 min-h-screen">
+    <body class="bg-[#F6F6F7] text-[#1A1A1A] min-h-screen">
         <div id="attendance-calendar-root" class="max-w-3xl mx-auto p-6"></div>
     </body>
 </html>
