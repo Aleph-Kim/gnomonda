@@ -88,3 +88,9 @@ it('exposes the forecast via the api endpoint', function () {
         'check_out_time' => '18:00',
     ]);
 });
+
+it('rejects a malformed date query param instead of erroring', function () {
+    $response = $this->getJson('/api/attendance-records/forecast?date=not-a-date');
+
+    $response->assertStatus(422);
+});

@@ -78,8 +78,12 @@ class AttendanceRecordController extends Controller
      */
     public function forecast(Request $request, AttendanceForecastService $forecastService)
     {
+        $request->validate([
+            'date' => ['nullable', 'date_format:Y-m-d'],
+        ]);
+
         $date = $request->query('date')
-            ? Carbon::parse($request->query('date'))
+            ? Carbon::createFromFormat('Y-m-d', $request->query('date'))
             : Carbon::today();
 
         return response()->json($forecastService->predict($date));
