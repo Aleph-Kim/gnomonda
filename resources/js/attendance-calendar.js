@@ -79,6 +79,10 @@ function dateString(day) {
     return `${state.year}-${String(state.month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
+function todayString() {
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+}
+
 function renderCalendarGrid() {
     const firstWeekday = new Date(state.year, state.month - 1, 1).getDay();
     const daysInMonth = new Date(state.year, state.month, 0).getDate();
@@ -91,17 +95,27 @@ function renderCalendarGrid() {
 
     for (let day = 1; day <= daysInMonth; day++) {
         const date = dateString(day);
+        const weekday = new Date(state.year, state.month - 1, day).getDay();
         const checkIn = recordFor(date, 'check_in');
         const checkOut = recordFor(date, 'check_out');
         const isSelected = state.selectedDate === date;
+        const isToday = date === todayString();
+
+        let dayClass = 'font-medium';
+        if (weekday === 0) dayClass += ' text-rose-600';
+        else if (weekday === 6) dayClass += ' text-blue-600';
+
+        let borderClass = 'border-gray-200';
+        if (isSelected) borderClass = 'border-blue-500';
+        if (isToday) borderClass += ' bg-blue-100';
 
         cells.push(`
             <button
                 type="button"
                 data-date="${date}"
-                class="flex flex-col items-start gap-1 rounded-md border p-2 text-left text-sm hover:bg-gray-100 ${isSelected ? 'border-blue-500 bg-blue-50' : 'border-gray-200'}"
+                class="flex flex-col items-start gap-1 rounded-md border p-2 text-left text-sm hover:bg-gray-100 ${borderClass}"
             >
-                <span class="font-medium">${day}</span>
+                <span class="${dayClass}">${day}</span>
                 ${checkIn ? `<span class="text-xs text-emerald-600">출근 ${checkIn.time}</span>` : ''}
                 ${checkOut ? `<span class="text-xs text-rose-600">퇴근 ${checkOut.time}</span>` : ''}
             </button>
@@ -150,7 +164,7 @@ function render() {
             <button type="button" data-action="next-month" class="rounded-md border border-gray-300 px-3 py-1 text-sm hover:bg-gray-100">다음</button>
         </div>
         <div class="mt-4 grid grid-cols-7 gap-2 text-center text-xs text-gray-500">
-            ${WEEKDAYS.map((w) => `<div>${w}</div>`).join('')}
+            ${WEEKDAYS.map((w, i) => `<div class="${i === 0 ? 'text-rose-600' : i === 6 ? 'text-blue-600' : ''}">${w}</div>`).join('')}
         </div>
         <div class="mt-1 grid grid-cols-7 gap-2">
             ${renderCalendarGrid()}
