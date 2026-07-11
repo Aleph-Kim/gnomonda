@@ -8,4 +8,6 @@ enum AttendanceType: string
     case CheckIn = 'check_in';
     // 퇴근
     case CheckOut = 'check_out';
+    // 미팅
+    case Meeting = 'meeting';
 }

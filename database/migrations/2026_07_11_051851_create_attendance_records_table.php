@@ -13,12 +13,11 @@ return new class extends Migration
     {
         Schema::create('attendance_records', function (Blueprint $table) {
             $table->id();
-            $table->date('date');
-            $table->string('type');
-            $table->time('time');
+            $table->date('date')->unique();
+            $table->time('check_in_time')->nullable();
+            $table->time('check_out_time')->nullable();
+            $table->boolean('meeting')->default(false);
             $table->timestamps();
-
-            $table->unique(['date', 'type']);
         });
     }
 

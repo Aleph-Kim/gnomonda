@@ -1,5 +1,6 @@
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
-const TYPE_LABELS = { check_in: '출근', check_out: '퇴근' };
+const TYPE_LABELS = { check_in: '출근', check_out: '퇴근', meeting: '미팅' };
+const TIME_FIELD = { check_in: 'check_in_time', check_out: 'check_out_time' };
 const DEFAULT_TIME = { check_in: '10:00', check_out: '16:00' };
 const HOURS = Array.from({ length: 24 }, (_, h) => String(h).padStart(2, '0'));
 const MINUTES = Array.from({ length: 60 }, (_, m) => String(m).padStart(2, '0'));
@@ -38,18 +39,20 @@ async function fetchRecords(year, month) {
     return json.data;
 }
 
-async function saveRecord(date, type, time) {
+async function saveRecord(date, type, value) {
+    const body = type === 'meeting' ? { date, type, meeting: value } : { date, type, time: value };
+
     const res = await fetch('/api/attendance-records', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ date, type, time }),
+        body: JSON.stringify(body),
     });
 
     if (!res.ok) throw new Error('저장에 실패했습니다.');
 }
 
-async function deleteRecord(id) {
-    const res = await fetch(`/api/attendance-records/${id}`, {
+async function deleteRecord(id, type) {
+    const res = await fetch(`/api/attendance-records/${id}?type=${type}`, {
         method: 'DELETE',
         headers: { Accept: 'application/json' },
     });
@@ -62,8 +65,8 @@ async function loadMonth() {
     render();
 }
 
-function recordFor(date, type) {
-    return state.records.find((r) => r.date === date && r.type === type) ?? null;
+function recordFor(date) {
+    return state.records.find((r) => r.date === date) ?? null;
 }
 
 function changeMonth(delta) {
@@ -88,9 +91,10 @@ function changeMonth(delta) {
 function selectDate(date) {
     state.selectedDate = state.selectedDate === date ? null : date;
     state.openPicker = null;
+    const record = recordFor(state.selectedDate);
     state.pendingTime = {
-        check_in: recordFor(state.selectedDate, 'check_in')?.time ?? DEFAULT_TIME.check_in,
-        check_out: recordFor(state.selectedDate, 'check_out')?.time ?? DEFAULT_TIME.check_out,
+        check_in: record?.check_in_time ?? DEFAULT_TIME.check_in,
+        check_out: record?.check_out_time ?? DEFAULT_TIME.check_out,
     };
     render();
 }
@@ -201,8 +205,10 @@ function renderCalendarGrid() {
     for (let day = 1; day <= daysInMonth; day++) {
         const date = dateString(day);
         const weekday = new Date(state.year, state.month - 1, day).getDay();
-        const checkIn = recordFor(date, 'check_in');
-        const checkOut = recordFor(date, 'check_out');
+        const record = recordFor(date);
+        const checkIn = record?.check_in_time ?? null;
+        const checkOut = record?.check_out_time ?? null;
+        const meeting = Boolean(record?.meeting);
         const isSelected = state.selectedDate === date;
         const isToday = date === todayString();
 
@@ -222,19 +228,21 @@ function renderCalendarGrid() {
         }
 
         let recordMark = '';
-        if (checkIn || checkOut) {
+        if (checkIn || checkOut || meeting) {
             const barClass = isSelected ? 'bg-white/50' : '';
             const inColor = isSelected ? 'text-white/80' : 'text-[#3D7DFF]';
             const outColor = isSelected ? 'text-white/80' : 'text-[#E5484D]';
+            const meetingDot = isSelected ? 'bg-white/50' : 'bg-[#8B5CF6]';
 
             recordMark = `
                 <span class="flex items-center gap-1">
                     ${checkIn ? `<span class="h-[3px] w-3 rounded-full ${barClass || 'bg-[#3D7DFF]'}"></span>` : ''}
                     ${checkOut ? `<span class="h-[3px] w-3 rounded-full ${barClass || 'bg-[#E5484D]'}"></span>` : ''}
+                    ${meeting ? `<span class="h-[5px] w-[5px] rounded-full ${meetingDot}"></span>` : ''}
                 </span>
                 <span class="flex flex-col items-center leading-tight">
-                    ${checkIn ? `<span class="text-[9px] font-medium tabular-nums ${inColor}">${checkIn.time}</span>` : ''}
-                    ${checkOut ? `<span class="text-[9px] font-medium tabular-nums ${outColor}">${checkOut.time}</span>` : ''}
+                    ${checkIn ? `<span class="text-[9px] font-medium tabular-nums ${inColor}">${checkIn}</span>` : ''}
+                    ${checkOut ? `<span class="text-[9px] font-medium tabular-nums ${outColor}">${checkOut}</span>` : ''}
                 </span>
             `;
         }
@@ -273,7 +281,7 @@ function renderWheelColumn(kind, values) {
 function renderTimePicker(type) {
     const value = state.pendingTime[type];
     const isOpen = state.openPicker === type;
-    const hasRecord = Boolean(recordFor(state.selectedDate, type));
+    const hasRecord = Boolean(recordFor(state.selectedDate)?.[TIME_FIELD[type]]);
 
     return `
         <div data-time-picker="${type}">
@@ -315,22 +323,45 @@ function renderTimePicker(type) {
     `;
 }
 
+function renderMeetingRow() {
+    const record = recordFor(state.selectedDate);
+    const active = Boolean(record?.meeting);
+
+    return `
+        <div>
+            <p class="mb-1 text-[13px] font-medium text-[#6B6B70]">${TYPE_LABELS.meeting}</p>
+            <div class="flex items-center justify-between">
+                <span class="text-[15px] text-[#1A1A1A]">${active ? '있음' : '없음'}</span>
+                <button
+                    type="button"
+                    role="switch"
+                    aria-checked="${active}"
+                    data-action="toggle-meeting"
+                    class="relative h-7 w-12 shrink-0 rounded-full transition-colors ${active ? 'bg-[#8B5CF6]' : 'bg-[#E0E0E3]'}"
+                >
+                    <span class="absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-transform ${active ? 'translate-x-[22px]' : 'translate-x-0.5'}"></span>
+                </button>
+            </div>
+        </div>
+    `;
+}
+
 function renderDatePanel() {
     if (!state.selectedDate) return '';
 
-    const rows = ['check_in', 'check_out']
-        .map((type, i) => {
-            const record = recordFor(state.selectedDate, type);
-            const isLast = i === 1;
+    const timeRows = ['check_in', 'check_out']
+        .map((type) => {
+            const record = recordFor(state.selectedDate);
+            const hasValue = Boolean(record?.[TIME_FIELD[type]]);
 
             return `
-                <div class="${isLast ? '' : 'mb-5 border-b border-[#ECECEE] pb-5'}">
+                <div class="mb-5 border-b border-[#ECECEE] pb-5">
                     <p class="mb-1 text-[13px] font-medium text-[#6B6B70]">${TYPE_LABELS[type]}</p>
                     <div class="flex flex-wrap items-center justify-between gap-y-2 gap-x-3">
                         ${renderTimePicker(type)}
                         <div class="flex shrink-0 items-center gap-4">
                             <button type="button" data-action="save" data-type="${type}" class="rounded-xl bg-[#2B2B30] px-5 py-2.5 text-[15px] font-semibold text-white transition hover:bg-black active:scale-[.98]">저장</button>
-                            ${record ? `<button type="button" data-action="delete" data-id="${record.id}" data-type="${type}" class="text-[15px] font-medium text-[#E5484D]">삭제</button>` : ''}
+                            ${hasValue ? `<button type="button" data-action="delete" data-id="${record.id}" data-type="${type}" class="text-[15px] font-medium text-[#E5484D]">삭제</button>` : ''}
                         </div>
                     </div>
                 </div>
@@ -341,7 +372,8 @@ function renderDatePanel() {
     return `
         <div class="mt-8 border-t border-[#ECECEE] pt-6">
             <p class="mb-6 text-[15px] font-semibold text-[#1A1A1A]">${formatDateHeader(state.selectedDate)}</p>
-            ${rows}
+            ${timeRows}
+            ${renderMeetingRow()}
         </div>
     `;
 }
@@ -420,8 +452,17 @@ function render() {
     root.querySelectorAll('[data-action="delete"]').forEach((el) => {
         el.addEventListener('click', async () => {
             const type = el.dataset.type;
-            await deleteRecord(el.dataset.id);
+            await deleteRecord(el.dataset.id, type);
             state.pendingTime[type] = DEFAULT_TIME[type];
+            await loadMonth();
+        });
+    });
+
+    root.querySelectorAll('[data-action="toggle-meeting"]').forEach((el) => {
+        el.addEventListener('click', async () => {
+            const record = recordFor(state.selectedDate);
+            const next = !record?.meeting;
+            await saveRecord(state.selectedDate, 'meeting', next);
             await loadMonth();
         });
     });

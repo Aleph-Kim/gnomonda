@@ -13,10 +13,20 @@ class StoreAttendanceRecordRequest extends FormRequest
         return [
             // 날짜
             'date' => ['required', 'date_format:Y-m-d'],
-            // 출퇴근 타입
+            // 갱신할 필드 구분자
             'type' => ['required', new Enum(AttendanceType::class)],
-            // 시간
-            'time' => ['required', 'date_format:H:i'],
+            // 출/퇴근 시간 (type이 check_in 또는 check_out일 때만)
+            'time' => [
+                'required_if:type,check_in,check_out',
+                'prohibited_if:type,meeting',
+                'date_format:H:i',
+            ],
+            // 미팅 여부 (type이 meeting일 때만)
+            'meeting' => [
+                'required_if:type,meeting',
+                'prohibited_unless:type,meeting',
+                'boolean',
+            ],
         ];
     }
 }
