@@ -9,6 +9,7 @@ use App\Http\Requests\StoreAttendanceRecordRequest;
 use App\Http\Resources\AttendanceRecordResource;
 use App\Models\AttendanceRecord;
 use App\Services\AttendanceForecastService;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 
@@ -44,10 +45,18 @@ class AttendanceRecordController extends Controller
             AttendanceType::Meeting => ['meeting' => (bool) $request->validated('meeting')],
         };
 
-        $record = AttendanceRecord::updateOrCreate(
-            ['date' => $request->validated('date')],
-            $values,
-        );
+        try {
+            $record = AttendanceRecord::updateOrCreate(
+                ['date' => $request->validated('date')],
+                $values,
+            );
+        } catch (UniqueConstraintViolationException) {
+            // 같은 날짜에 대한 동시 요청(예: 토글 버튼 연타)으로 행이 이미 생성된 경우 재시도한다.
+            $record = AttendanceRecord::updateOrCreate(
+                ['date' => $request->validated('date')],
+                $values,
+            );
+        }
 
         $this->deleteIfEmpty($record);
 

@@ -553,11 +553,19 @@ function render() {
 
     root.querySelectorAll('[data-action="toggle-meeting"]').forEach((el) => {
         el.addEventListener('click', async () => {
-            const record = recordFor(state.selectedDate);
-            const next = !record?.meeting;
-            await saveRecord(state.selectedDate, 'meeting', next);
-            await loadMonth();
-            await refreshTodaySummary();
+            // 저장 중 중복 클릭(연타) 시 같은 날짜에 요청이 겹쳐 나가는 것을 막는다.
+            if (el.disabled) return;
+            el.disabled = true;
+
+            try {
+                const record = recordFor(state.selectedDate);
+                const next = !record?.meeting;
+                await saveRecord(state.selectedDate, 'meeting', next);
+                await loadMonth();
+                await refreshTodaySummary();
+            } finally {
+                el.disabled = false;
+            }
         });
     });
 
