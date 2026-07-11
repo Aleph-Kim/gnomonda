@@ -8,7 +8,9 @@ use App\Http\Requests\DestroyAttendanceRecordRequest;
 use App\Http\Requests\StoreAttendanceRecordRequest;
 use App\Http\Resources\AttendanceRecordResource;
 use App\Models\AttendanceRecord;
+use App\Services\AttendanceForecastService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 
 class AttendanceRecordController extends Controller
 {
@@ -69,6 +71,18 @@ class AttendanceRecordController extends Controller
         $this->deleteIfEmpty($attendanceRecord);
 
         return response()->noContent();
+    }
+
+    /**
+     * 예측 (해당 날짜의 예상 출근/퇴근 시간)
+     */
+    public function forecast(Request $request, AttendanceForecastService $forecastService)
+    {
+        $date = $request->query('date')
+            ? Carbon::parse($request->query('date'))
+            : Carbon::today();
+
+        return response()->json($forecastService->predict($date));
     }
 
     private function deleteIfEmpty(AttendanceRecord $record): void

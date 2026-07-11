@@ -23,6 +23,7 @@ const state = {
     openPicker: null, // null | 'check_in' | 'check_out'
     pickerSnapshot: null, // pendingTime value to restore on cancel
     pendingTime: { check_in: null, check_out: null }, // 'HH:MM' | null
+    isForecast: { check_in: false, check_out: false }, // pendingTime 값이 예측값인지 여부
 };
 
 const root = document.getElementById('attendance-calendar-root');
@@ -65,6 +66,16 @@ async function loadMonth() {
     render();
 }
 
+async function fetchForecast(date) {
+    const res = await fetch(`/api/attendance-records/forecast?date=${date}`, {
+        headers: { Accept: 'application/json' },
+    });
+
+    if (!res.ok) throw new Error('예측 시간을 불러오지 못했습니다.');
+
+    return res.json();
+}
+
 function recordFor(date) {
     return state.records.find((r) => r.date === date) ?? null;
 }
@@ -96,6 +107,34 @@ function selectDate(date) {
         check_in: record?.check_in_time ?? DEFAULT_TIME.check_in,
         check_out: record?.check_out_time ?? DEFAULT_TIME.check_out,
     };
+    state.isForecast = { check_in: false, check_out: false };
+    render();
+
+    if (state.selectedDate) applyForecast(state.selectedDate, record);
+}
+
+async function applyForecast(date, record) {
+    if (record?.check_in_time && record?.check_out_time) return; // 둘 다 이미 저장돼 있으면 예측 불필요
+
+    let forecast;
+    try {
+        forecast = await fetchForecast(date);
+    } catch {
+        return; // 예측 실패 시 조용히 기본값 유지
+    }
+
+    if (state.selectedDate !== date) return; // 그 사이 다른 날짜로 이동한 경우 무시
+
+    ['check_in', 'check_out'].forEach((type) => {
+        const hasRecord = Boolean(record?.[TIME_FIELD[type]]);
+        const predicted = forecast[TIME_FIELD[type]];
+
+        if (!hasRecord && predicted && state.openPicker !== type) {
+            state.pendingTime[type] = predicted;
+            state.isForecast[type] = true;
+        }
+    });
+
     render();
 }
 
@@ -282,6 +321,7 @@ function renderTimePicker(type) {
     const value = state.pendingTime[type];
     const isOpen = state.openPicker === type;
     const hasRecord = Boolean(recordFor(state.selectedDate)?.[TIME_FIELD[type]]);
+    const isForecast = !hasRecord && state.isForecast[type];
 
     return `
         <div data-time-picker="${type}">
@@ -291,7 +331,8 @@ function renderTimePicker(type) {
                 data-type="${type}"
                 class="-mx-2 -my-1 flex items-baseline gap-2 rounded-lg px-2 py-1 hover:bg-[#F0F0F2]"
             >
-                <span class="text-[28px] font-semibold tabular-nums ${hasRecord ? 'text-[#1A1A1A]' : 'text-[#A8A8AD]'}">${value}</span>
+                <span class="text-[28px] font-semibold tabular-nums ${hasRecord ? 'text-[#1A1A1A]' : isForecast ? 'text-[#8B5CF6]' : 'text-[#A8A8AD]'}">${value}</span>
+                ${isForecast ? '<span class="text-[11px] font-medium text-[#8B5CF6]">예측</span>' : ''}
                 <span class="text-[13px] font-medium text-[#6B6B70]">수정</span>
             </button>
             ${
