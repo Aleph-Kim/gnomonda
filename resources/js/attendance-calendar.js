@@ -19,6 +19,7 @@ const state = {
     year: today.getFullYear(),
     month: today.getMonth() + 1, // 1-12
     records: [],
+    monthForecasts: {}, // date('YYYY-MM-DD') => { check_in_time, check_out_time } | undefined
     selectedDate: null,
     openPicker: null, // null | 'check_in' | 'check_out'
     pickerSnapshot: null, // pendingTime value to restore on cancel
@@ -64,8 +65,21 @@ async function deleteRecord(id, type) {
 }
 
 async function loadMonth() {
-    state.records = await fetchRecords(state.year, state.month);
+    const year = state.year;
+    const month = state.month;
+
+    state.records = await fetchRecords(year, month);
     render();
+
+    try {
+        const forecasts = await fetchForecastRange(year, month);
+        if (state.year === year && state.month === month) {
+            state.monthForecasts = forecasts;
+            render();
+        }
+    } catch {
+        // 예측 미리보기 실패 시 조용히 무시 (달력은 실제 기록만으로도 정상 동작)
+    }
 }
 
 async function fetchForecast(date) {
@@ -74,6 +88,16 @@ async function fetchForecast(date) {
     });
 
     if (!res.ok) throw new Error('예측 시간을 불러오지 못했습니다.');
+
+    return res.json();
+}
+
+async function fetchForecastRange(year, month) {
+    const res = await fetch(`/api/attendance-records/forecast-range?year=${year}&month=${month}`, {
+        headers: { Accept: 'application/json' },
+    });
+
+    if (!res.ok) throw new Error('월간 예측을 불러오지 못했습니다.');
 
     return res.json();
 }
@@ -306,6 +330,21 @@ function renderCalendarGrid() {
                     ${checkOut ? `<span class="text-[9px] font-medium tabular-nums ${outColor}">${checkOut}</span>` : ''}
                 </span>
             `;
+        } else if (weekday !== 0 && weekday !== 6) {
+            // 실제 기록이 없는 평일이면 예측값을 옅은 색으로 미리 보여준다.
+            const forecast = state.monthForecasts[date];
+            const forecastIn = forecast?.check_in_time ?? null;
+            const forecastOut = forecast?.check_out_time ?? null;
+            const forecastColor = isSelected ? 'text-white/50' : 'text-[#8B5CF6]/70';
+
+            if (forecastIn || forecastOut) {
+                recordMark = `
+                    <span class="flex flex-col items-center leading-tight opacity-70">
+                        ${forecastIn ? `<span class="text-[9px] font-medium tabular-nums ${forecastColor}">${forecastIn}</span>` : ''}
+                        ${forecastOut ? `<span class="text-[9px] font-medium tabular-nums ${forecastColor}">${forecastOut}</span>` : ''}
+                    </span>
+                `;
+            }
         }
 
         cells.push(`

@@ -98,6 +98,21 @@ class AttendanceRecordController extends Controller
         return response()->json($forecastService->predict($date));
     }
 
+    /**
+     * 예측 (한 달치 날짜별 예상 출근/퇴근 시간 - 달력 미리보기용)
+     */
+    public function forecastRange(Request $request, AttendanceForecastService $forecastService)
+    {
+        $request->validate([
+            'year' => ['required', 'integer'],
+            'month' => ['required', 'integer', 'between:1,12'],
+        ]);
+
+        $start = Carbon::create((int) $request->query('year'), (int) $request->query('month'), 1);
+
+        return response()->json($forecastService->predictRange($start, $start->copy()->endOfMonth()));
+    }
+
     private function deleteIfEmpty(AttendanceRecord $record): void
     {
         if ($record->check_in_time === null && $record->check_out_time === null && $record->meeting === false) {

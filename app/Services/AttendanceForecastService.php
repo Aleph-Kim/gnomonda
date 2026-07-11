@@ -23,13 +23,43 @@ class AttendanceForecastService
      */
     public function predict(Carbon $date): array
     {
+        $since = $date->copy()->subDays(self::LOOKBACK_DAYS);
+        $weatherRange = $this->weatherRepository->range($since, $date);
+
         return [
-            'check_in_time' => $this->predictTime($date, 'check_in_time'),
-            'check_out_time' => $this->predictTime($date, 'check_out_time'),
+            'check_in_time' => $this->predictTime($date, 'check_in_time', $weatherRange),
+            'check_out_time' => $this->predictTime($date, 'check_out_time', $weatherRange),
         ];
     }
 
-    private function predictTime(Carbon $date, string $column): ?string
+    /**
+     * 기간(양 끝 포함) 내 날짜별 예측을 한 번에 계산한다 (달력에서 미리보기로 사용).
+     * 날씨는 필요한 전체 구간을 한 번에 가져와 공유한다 (날짜별로 외부 API를 반복 호출하지 않도록).
+     *
+     * @return array<string, array{check_in_time: ?string, check_out_time: ?string}>
+     */
+    public function predictRange(Carbon $start, Carbon $end): array
+    {
+        $weatherRange = $this->weatherRepository->range($start->copy()->subDays(self::LOOKBACK_DAYS), $end);
+
+        $forecasts = [];
+        $date = $start->copy();
+
+        while ($date->lte($end)) {
+            $forecasts[$date->toDateString()] = [
+                'check_in_time' => $this->predictTime($date, 'check_in_time', $weatherRange),
+                'check_out_time' => $this->predictTime($date, 'check_out_time', $weatherRange),
+            ];
+            $date->addDay();
+        }
+
+        return $forecasts;
+    }
+
+    /**
+     * @param  array<string, WeatherSnapshot>  $weatherRange
+     */
+    private function predictTime(Carbon $date, string $column, array $weatherRange): ?string
     {
         $since = $date->copy()->subDays(self::LOOKBACK_DAYS);
 
@@ -44,7 +74,13 @@ class AttendanceForecastService
             return null;
         }
 
-        $weatherRange = $this->weatherRepository->range($since, $date);
+        // 같은 요일 기록이 한 번도 없으면(예: 평일 기록만 있는데 주말을 예측) 추측하지 않는다.
+        $hasSameWeekdayRecord = $records->contains(fn (AttendanceRecord $record) => $record->date->dayOfWeek === $date->dayOfWeek);
+
+        if (! $hasSameWeekdayRecord) {
+            return null;
+        }
+
         $targetWeather = ($weatherRange[$date->toDateString()] ?? null)?->category();
         $targetContext = $this->holidayService->context($date);
 

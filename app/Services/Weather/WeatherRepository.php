@@ -35,8 +35,9 @@ class WeatherRepository
         }
 
         $snapshots = $cached->map(fn (WeatherDailyRecord $record) => $record->toSnapshot())->all();
+        $fetched = $this->provider->dailyRange($start, $end);
 
-        foreach ($this->provider->dailyRange($start, $end) as $date => $snapshot) {
+        foreach ($fetched as $date => $snapshot) {
             $snapshots[$date] = $snapshot;
 
             WeatherDailyRecord::updateOrCreate(['date' => $date], [
@@ -44,6 +45,18 @@ class WeatherRepository
                 'precipitation_mm' => $snapshot->precipitationMm,
                 'max_temp_c' => $snapshot->maxTempC,
             ]);
+        }
+
+        // provider가 값을 못 준 날짜(예보 가능 범위 밖 등)도 빈 값으로 캐시해서, 매 요청마다
+        // 같은 실패를 반복 조회하지 않도록 한다.
+        foreach ($requestedDates as $date) {
+            if (! isset($snapshots[$date]) && ! $cached->has($date)) {
+                WeatherDailyRecord::updateOrCreate(['date' => $date], [
+                    'weather_code' => null,
+                    'precipitation_mm' => 0,
+                    'max_temp_c' => null,
+                ]);
+            }
         }
 
         return $snapshots;

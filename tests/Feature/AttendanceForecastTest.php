@@ -94,3 +94,30 @@ it('rejects a malformed date query param instead of erroring', function () {
 
     $response->assertStatus(422);
 });
+
+it('does not guess for a weekday it has never seen', function () {
+    // 평일(월~금) 기록만 있는 상태에서 주말(2026-07-11, 토)을 예측하면 안 된다.
+    AttendanceRecord::create(['date' => '2026-07-06', 'check_in_time' => '10:00', 'check_out_time' => '18:00']);
+    AttendanceRecord::create(['date' => '2026-07-07', 'check_in_time' => '10:00', 'check_out_time' => '18:00']);
+    AttendanceRecord::create(['date' => '2026-07-08', 'check_in_time' => '10:00', 'check_out_time' => '18:00']);
+    AttendanceRecord::create(['date' => '2026-07-09', 'check_in_time' => '10:00', 'check_out_time' => '18:00']);
+    AttendanceRecord::create(['date' => '2026-07-10', 'check_in_time' => '10:00', 'check_out_time' => '18:00']);
+
+    $service = app(AttendanceForecastService::class);
+
+    expect($service->predict(Carbon::parse('2026-07-11')))->toBe([
+        'check_in_time' => null,
+        'check_out_time' => null,
+    ]);
+});
+
+it('exposes a whole month of forecasts via the range api endpoint', function () {
+    AttendanceRecord::create(['date' => '2026-07-06', 'check_in_time' => '10:00', 'check_out_time' => '18:00']);
+
+    $response = $this->getJson('/api/attendance-records/forecast-range?year=2026&month=7');
+
+    $response->assertOk()
+        ->assertJsonStructure(['2026-07-01', '2026-07-31'])
+        ->assertJsonCount(31)
+        ->assertJsonPath('2026-07-13.check_in_time', '10:00');
+});
