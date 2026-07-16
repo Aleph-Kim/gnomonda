@@ -8,6 +8,14 @@ const WHEEL_ITEM_HEIGHT = 40; // px, must match the h-10 wheel item buttons
 const WHEEL_HEIGHT = 220; // px, visible wheel viewport height — must match the literal h-[220px] classes below (Tailwind can't see interpolated class names)
 const WHEEL_SPACER = WHEEL_HEIGHT / 2 - WHEEL_ITEM_HEIGHT / 2; // keeps scrollTop = index * ITEM_HEIGHT centered
 
+// AttendanceForecastService::weight()의 가중치 규칙과 일치해야 함
+const FORECAST_WEIGHT_FACTORS = [
+    { label: '최근 기록일수록', value: '가중치 ↑' },
+    { label: '같은 요일', value: '× 3.0' },
+    { label: '비슷한 날씨', value: '× 1.5' },
+    { label: '공휴일 전후 동일', value: '× 1.3' },
+];
+
 const ICONS = {
     chevronLeft: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-5 w-5"><path fill-rule="evenodd" d="M12.79 5.23a.75.75 0 010 1.06L9.06 10l3.73 3.71a.75.75 0 11-1.06 1.06l-4.25-4.25a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 0z" clip-rule="evenodd" /></svg>`,
     chevronRight: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-5 w-5"><path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 010-1.06L10.94 10 7.21 6.29a.75.75 0 111.06-1.06l4.25 4.25a.75.75 0 010 1.06l-4.25 4.25a.75.75 0 01-1.06 0z" clip-rule="evenodd" /></svg>`,
@@ -25,6 +33,7 @@ const state = {
     pickerSnapshot: null, // pendingTime value to restore on cancel
     pendingTime: { check_in: null, check_out: null }, // 'HH:MM' | null
     isForecast: { check_in: false, check_out: false }, // pendingTime 값이 예측값인지 여부
+    forecastExplanation: { check_in: null, check_out: null }, // 예측 근거 문장 (서버가 완성해서 내려줌)
     todayRecord: null, // 오늘 실제 기록 (조회 중인 달과 무관하게 항상 오늘 기준)
     todayForecast: { check_in_time: null, check_out_time: null },
 };
@@ -154,6 +163,7 @@ function selectDate(date) {
         check_out: record?.check_out_time ?? DEFAULT_TIME.check_out,
     };
     state.isForecast = { check_in: false, check_out: false };
+    state.forecastExplanation = { check_in: null, check_out: null };
     render();
 
     if (state.selectedDate) applyForecast(state.selectedDate, record);
@@ -178,6 +188,7 @@ async function applyForecast(date, record) {
         if (!hasRecord && predicted && state.openPicker !== type) {
             state.pendingTime[type] = predicted;
             state.isForecast[type] = true;
+            state.forecastExplanation[type] = forecast.explanation?.[TIME_FIELD[type]] ?? null;
         }
     });
 
@@ -507,28 +518,89 @@ function renderDatePanel() {
     `;
 }
 
+function renderAlgorithmPanel() {
+    return `
+        <div class="rounded-[20px] bg-white p-6 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_8px_24px_-12px_rgba(0,0,0,0.12)]">
+            <p class="mb-2 text-[15px] font-semibold text-[#1A1A1A]">예측 계산 방식</p>
+            <div class="rounded-xl bg-[#F6F6F7] p-4">
+                <p class="mb-3 text-[12px] leading-relaxed text-[#6B6B70]">
+                    최근 60일간의 출퇴근 기록(미팅 있었던 날 제외) 중, 아래 조건이 겹치는 기록일수록 더 크게 반영해 평균을 냅니다.
+                </p>
+                <ul class="space-y-1.5">
+                    ${FORECAST_WEIGHT_FACTORS.map(
+                        (f) => `
+                        <li class="flex items-center justify-between text-[12px] text-[#6B6B70]">
+                            <span>${f.label}</span>
+                            <span class="font-semibold text-[#1A1A1A]">${f.value}</span>
+                        </li>
+                    `
+                    ).join('')}
+                </ul>
+                <p class="mt-3 text-[11px] text-[#A8A8AD]">같은 요일 기록이 한 번도 없으면 예측하지 않습니다.</p>
+            </div>
+        </div>
+    `;
+}
+
+function renderForecastBasisPanel() {
+    if (!state.selectedDate) return '';
+
+    const sections = ['check_in', 'check_out']
+        .filter((type) => state.isForecast[type] && state.forecastExplanation[type])
+        .map(
+            (type) => `
+                <div class="mb-4 last:mb-0">
+                    <p class="mb-1 text-[13px] font-semibold text-[#8B5CF6]">예상 ${TYPE_LABELS[type]}</p>
+                    <p class="text-[13px] leading-relaxed text-[#6B6B70]">${state.forecastExplanation[type]}</p>
+                </div>
+            `
+        )
+        .join('');
+
+    if (!sections) return '';
+
+    return `
+        <div class="mt-6 rounded-[20px] bg-white p-6 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_8px_24px_-12px_rgba(0,0,0,0.12)]">
+            <p class="mb-4 text-[15px] font-semibold text-[#1A1A1A]">예측 근거</p>
+            ${sections}
+        </div>
+    `;
+}
+
 function render() {
+    // 알고리즘 설명은 항상 떠 있으므로, 사이드바는 늘 존재한다 — 달력 칼럼이 그만큼 좁아지지 않도록
+    // 바깥 컨테이너 자체를 사이드바 폭만큼 넓힌다. Tailwind는 소스에 있는 그대로의(interpolation 없는)
+    // 클래스 문자열만 인식하므로 320px을 리터럴로 적어야 한다 — 아래 grid-cols의 320px과 이 max-w calc의
+    // 320px은 같은 값으로 유지할 것.
+    root.className = 'mx-auto p-6 max-w-3xl lg:max-w-[calc(48rem_+_1.5rem_+_320px)]';
+
     root.innerHTML = `
         ${renderTodaySummary()}
-        <div class="rounded-[20px] bg-white p-6 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_8px_24px_-12px_rgba(0,0,0,0.12)] sm:p-8">
-            <div class="flex items-center justify-between">
-                <h1 class="text-[22px] font-semibold text-[#1A1A1A]">${state.year}년 ${state.month}월</h1>
-                <div class="flex items-center gap-1">
-                    <button type="button" data-action="prev-month" class="flex h-9 w-9 items-center justify-center rounded-lg text-[#6B6B70] hover:bg-[#F0F0F2] hover:text-[#1A1A1A]" aria-label="이전 달">
-                        ${ICONS.chevronLeft}
-                    </button>
-                    <button type="button" data-action="next-month" class="flex h-9 w-9 items-center justify-center rounded-lg text-[#6B6B70] hover:bg-[#F0F0F2] hover:text-[#1A1A1A]" aria-label="다음 달">
-                        ${ICONS.chevronRight}
-                    </button>
+        <div class="lg:grid lg:grid-cols-[1fr_320px] lg:items-start lg:gap-6">
+            <div class="rounded-[20px] bg-white p-6 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_8px_24px_-12px_rgba(0,0,0,0.12)] sm:p-8">
+                <div class="flex items-center justify-between">
+                    <h1 class="text-[22px] font-semibold text-[#1A1A1A]">${state.year}년 ${state.month}월</h1>
+                    <div class="flex items-center gap-1">
+                        <button type="button" data-action="prev-month" class="flex h-9 w-9 items-center justify-center rounded-lg text-[#6B6B70] hover:bg-[#F0F0F2] hover:text-[#1A1A1A]" aria-label="이전 달">
+                            ${ICONS.chevronLeft}
+                        </button>
+                        <button type="button" data-action="next-month" class="flex h-9 w-9 items-center justify-center rounded-lg text-[#6B6B70] hover:bg-[#F0F0F2] hover:text-[#1A1A1A]" aria-label="다음 달">
+                            ${ICONS.chevronRight}
+                        </button>
+                    </div>
                 </div>
+                <div class="mt-8 grid grid-cols-7 gap-1 border-b border-[#ECECEE] pb-2 text-center text-xs font-medium text-[#A8A8AD]">
+                    ${WEEKDAYS.map((w, i) => `<div class="${i === 0 ? 'text-[#E57373]' : i === 6 ? 'text-[#64B5F6]' : ''}">${w}</div>`).join('')}
+                </div>
+                <div class="mt-2 grid grid-cols-7 gap-1">
+                    ${renderCalendarGrid()}
+                </div>
+                ${renderDatePanel()}
             </div>
-            <div class="mt-8 grid grid-cols-7 gap-1 border-b border-[#ECECEE] pb-2 text-center text-xs font-medium text-[#A8A8AD]">
-                ${WEEKDAYS.map((w, i) => `<div class="${i === 0 ? 'text-[#E57373]' : i === 6 ? 'text-[#64B5F6]' : ''}">${w}</div>`).join('')}
+            <div class="mt-6 lg:mt-0">
+                ${renderAlgorithmPanel()}
+                ${renderForecastBasisPanel()}
             </div>
-            <div class="mt-2 grid grid-cols-7 gap-1">
-                ${renderCalendarGrid()}
-            </div>
-            ${renderDatePanel()}
         </div>
     `;
 

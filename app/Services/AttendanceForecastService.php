@@ -7,11 +7,30 @@ use App\Services\Weather\WeatherCategory;
 use App\Services\Weather\WeatherRepository;
 use App\Services\Weather\WeatherSnapshot;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 
 class AttendanceForecastService
 {
     // 예측에 사용할 과거 기록 조회 범위 (일)
     private const LOOKBACK_DAYS = 60;
+
+    // 예측 근거 문장에 인용할 최근 기록 수 (예: "최근 3번의 월요일")
+    private const RECENT_SAMPLE = 3;
+
+    private const WEEKDAY_LABELS = ['일', '월', '화', '수', '목', '금', '토'];
+
+    private const WEATHER_LABELS = [
+        'clear' => '맑은',
+        'cloudy' => '흐린',
+        'rain' => '비 오는',
+        'snow' => '눈 오는',
+    ];
+
+    private const HOLIDAY_LABELS = [
+        'holiday' => '공휴일',
+        'day_before_holiday' => '공휴일 전날',
+        'day_after_holiday' => '공휴일 다음날',
+    ];
 
     public function __construct(
         private readonly WeatherRepository $weatherRepository,
@@ -26,9 +45,16 @@ class AttendanceForecastService
         $since = $date->copy()->subDays(self::LOOKBACK_DAYS);
         $weatherRange = $this->weatherRepository->range($since, $date);
 
+        $checkIn = $this->computePrediction($date, 'check_in_time', $weatherRange);
+        $checkOut = $this->computePrediction($date, 'check_out_time', $weatherRange);
+
         return [
-            'check_in_time' => $this->predictTime($date, 'check_in_time', $weatherRange),
-            'check_out_time' => $this->predictTime($date, 'check_out_time', $weatherRange),
+            'check_in_time' => $checkIn['value'],
+            'check_out_time' => $checkOut['value'],
+            'explanation' => [
+                'check_in_time' => $checkIn['explanation'],
+                'check_out_time' => $checkOut['explanation'],
+            ],
         ];
     }
 
@@ -61,6 +87,15 @@ class AttendanceForecastService
      */
     private function predictTime(Carbon $date, string $column, array $weatherRange): ?string
     {
+        return $this->computePrediction($date, $column, $weatherRange)['value'];
+    }
+
+    /**
+     * @param  array<string, WeatherSnapshot>  $weatherRange
+     * @return array{value: ?string, explanation: ?string}
+     */
+    private function computePrediction(Carbon $date, string $column, array $weatherRange): array
+    {
         $since = $date->copy()->subDays(self::LOOKBACK_DAYS);
 
         $records = AttendanceRecord::query()
@@ -71,14 +106,14 @@ class AttendanceForecastService
             ->get(['date', $column]);
 
         if ($records->isEmpty()) {
-            return null;
+            return ['value' => null, 'explanation' => null];
         }
 
         // 같은 요일 기록이 한 번도 없으면(예: 평일 기록만 있는데 주말을 예측) 추측하지 않는다.
         $hasSameWeekdayRecord = $records->contains(fn (AttendanceRecord $record) => $record->date->dayOfWeek === $date->dayOfWeek);
 
         if (! $hasSameWeekdayRecord) {
-            return null;
+            return ['value' => null, 'explanation' => null];
         }
 
         $targetWeather = ($weatherRange[$date->toDateString()] ?? null)?->category();
@@ -94,10 +129,73 @@ class AttendanceForecastService
         }
 
         if ($totalWeight <= 0.0) {
-            return null;
+            return ['value' => null, 'explanation' => null];
         }
 
         $avgMinutes = (int) round($weightedMinutes / $totalWeight);
+        $value = sprintf('%02d:%02d', intdiv($avgMinutes, 60), $avgMinutes % 60);
+
+        return [
+            'value' => $value,
+            'explanation' => $this->buildExplanation($date, $column, $value, $records, $weatherRange, $targetWeather, $targetContext),
+        ];
+    }
+
+    /**
+     * 예측값의 근거를 사람이 읽을 수 있는 한 문장으로 만든다.
+     *
+     * @param  Collection<int, AttendanceRecord>  $records
+     * @param  array<string, WeatherSnapshot>  $weatherRange
+     */
+    private function buildExplanation(Carbon $date, string $column, string $value, Collection $records, array $weatherRange, ?WeatherCategory $targetWeather, string $targetContext): string
+    {
+        $label = $column === 'check_in_time' ? '출근' : '퇴근';
+        $clauses = [];
+
+        $sameWeekday = $records
+            ->filter(fn (AttendanceRecord $record) => $record->date->dayOfWeek === $date->dayOfWeek)
+            ->sortByDesc(fn (AttendanceRecord $record) => $record->date)
+            ->take(self::RECENT_SAMPLE);
+
+        $weekdayAverage = $this->averageTime($sameWeekday, $column);
+        if ($weekdayAverage !== null) {
+            $weekdayLabel = self::WEEKDAY_LABELS[$date->dayOfWeek];
+            $clauses[] = "최근 {$sameWeekday->count()}번의 {$weekdayLabel}요일 {$label} 시간 평균({$weekdayAverage})";
+        }
+
+        if ($targetWeather !== null && isset(self::WEATHER_LABELS[$targetWeather->value])) {
+            $weatherMatches = $records
+                ->filter(fn (AttendanceRecord $record) => ($weatherRange[$record->date->toDateString()] ?? null)?->category() === $targetWeather)
+                ->sortByDesc(fn (AttendanceRecord $record) => $record->date)
+                ->take(self::RECENT_SAMPLE);
+
+            $weatherAverage = $this->averageTime($weatherMatches, $column);
+            if ($weatherAverage !== null) {
+                $weatherLabel = self::WEATHER_LABELS[$targetWeather->value];
+                $clauses[] = "{$weatherLabel} 날씨 패턴({$weatherAverage})";
+            }
+        }
+
+        if (isset(self::HOLIDAY_LABELS[$targetContext])) {
+            $holidayMatches = $records->filter(fn (AttendanceRecord $record) => $this->holidayService->context($record->date) === $targetContext);
+
+            if ($holidayMatches->isNotEmpty()) {
+                $clauses[] = self::HOLIDAY_LABELS[$targetContext].' 기록';
+            }
+        }
+
+        $basis = empty($clauses) ? '과거 기록' : implode(', ', $clauses);
+
+        return "{$basis} 등을 종합적으로 고려하면 {$value} {$label} 정도로 예상됩니다.";
+    }
+
+    private function averageTime(Collection $records, string $column): ?string
+    {
+        if ($records->isEmpty()) {
+            return null;
+        }
+
+        $avgMinutes = (int) round($records->avg(fn (AttendanceRecord $record) => $this->toMinutes($record->{$column})));
 
         return sprintf('%02d:%02d', intdiv($avgMinutes, 60), $avgMinutes % 60);
     }
