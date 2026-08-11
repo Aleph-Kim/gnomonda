@@ -15,11 +15,7 @@ class WeatherRepository
         return $this->range($date, $date)[$date->toDateString()] ?? null;
     }
 
-    /**
-     * 캐시(DB)에 없는 날짜만 provider에서 가져와 저장한 뒤, 기간 전체를 반환한다.
-     *
-     * @return array<string, WeatherSnapshot>
-     */
+    // 캐시(DB)에 없는 날짜만 provider에서 가져와 저장한 뒤, 기간 전체 반환
     public function range(Carbon $start, Carbon $end): array
     {
         $cached = WeatherDailyRecord::query()
@@ -47,8 +43,7 @@ class WeatherRepository
             ]);
         }
 
-        // provider가 값을 못 준 날짜(예보 가능 범위 밖 등)도 빈 값으로 캐시해서, 매 요청마다
-        // 같은 실패를 반복 조회하지 않도록 한다.
+        // provider가 값을 못 준 날짜(예보 가능 범위 밖 등)도 빈 값으로 캐시, 같은 실패 반복 조회 방지
         foreach ($requestedDates as $date) {
             if (! isset($snapshots[$date]) && ! $cached->has($date)) {
                 WeatherDailyRecord::updateOrCreate(['date' => $date], [

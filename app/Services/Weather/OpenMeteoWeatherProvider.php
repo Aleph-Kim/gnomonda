@@ -23,7 +23,7 @@ class OpenMeteoWeatherProvider implements WeatherProvider
         $today = Carbon::today($this->timezone);
         $snapshots = [];
 
-        // 과거 날짜는 archive API, 오늘 이후는 forecast API로 나눠서 조회한다.
+        // 과거 날짜는 archive API, 오늘 이후는 forecast API로 분리 조회
         if ($start->lt($today)) {
             $snapshots += $this->fetch(self::ARCHIVE_ENDPOINT, $start, $end->lt($today) ? $end : $today->copy()->subDay());
         }
@@ -35,9 +35,6 @@ class OpenMeteoWeatherProvider implements WeatherProvider
         return $snapshots;
     }
 
-    /**
-     * @return array<string, WeatherSnapshot>
-     */
     private function fetch(string $endpoint, Carbon $start, Carbon $end): array
     {
         if ($start->gt($end)) {
@@ -54,7 +51,7 @@ class OpenMeteoWeatherProvider implements WeatherProvider
                 'end_date' => $end->toDateString(),
             ]);
         } catch (Throwable) {
-            // 네트워크 장애 등으로 날씨 조회에 실패해도 예측 자체는 계속 동작해야 한다.
+            // 네트워크 장애 등으로 날씨 조회 실패해도 예측 자체는 계속 동작
             return [];
         }
 

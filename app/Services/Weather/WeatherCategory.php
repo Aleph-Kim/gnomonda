@@ -10,9 +10,7 @@ enum WeatherCategory: string
     case Snow = 'snow';
     case Unknown = 'unknown';
 
-    /**
-     * Open-Meteo(WMO) 날씨 코드를 카테고리로 변환한다.
-     */
+    // Open-Meteo(WMO) 날씨 코드를 카테고리로 변환
     public static function fromWeatherCode(?int $code): self
     {
         if ($code === null) {

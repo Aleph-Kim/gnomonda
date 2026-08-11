@@ -27,9 +27,7 @@ class AttendanceRecordFactory extends Factory
         ];
     }
 
-    /**
-     * 미팅만 있고 출퇴근 기록은 없는 날.
-     */
+    // 미팅만 있고 출퇴근 기록은 없는 날
     public function meetingOnly(): static
     {
         return $this->state(fn () => [
@@ -39,9 +37,7 @@ class AttendanceRecordFactory extends Factory
         ]);
     }
 
-    /**
-     * 기준 시각(HH:MM)에서 ±$varianceMinutes 범위 안의 임의 시각을 만든다.
-     */
+    // 기준 시각(HH:MM)에서 ±$varianceMinutes 범위 안의 임의 시각 생성
     private function timeAround(string $base, int $varianceMinutes): string
     {
         [$hour, $minute] = array_map('intval', explode(':', $base));

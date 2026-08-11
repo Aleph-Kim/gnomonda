@@ -15,7 +15,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        // 날씨 제공자를 여기서만 바꾸면 됨 (예: 기상청 API로 전환 시 driver 분기 추가)
+        // 날씨 제공자 교체 지점 (예: 기상청 API로 전환 시 driver 분기 추가)
         $this->app->bind(WeatherProvider::class, fn () => match (config('weather.driver')) {
             default => new OpenMeteoWeatherProvider(
                 latitude: config('weather.latitude'),

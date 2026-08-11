@@ -5,10 +5,8 @@ namespace App\Services\Holiday;
 interface HolidayProvider
 {
     /**
-     * 주어진 연도의 공휴일을 가져온다. 다른 제공자로 교체하려면 이 인터페이스만
-     * 구현하면 된다.
-     *
-     * @return array<string, string> 날짜(Y-m-d) => 공휴일명
+     * 연도별 공휴일 조회, 다른 제공자로 교체 시 이 인터페이스 구현만으로 대응
+     * 반환값은 날짜(Y-m-d) => 공휴일명 형식
      */
     public function yearHolidays(int $year): array;
 }

@@ -15,9 +15,6 @@ use Illuminate\Support\Carbon;
 
 class AttendanceRecordController extends Controller
 {
-    /**
-     * 조회
-     */
     public function index(Request $request)
     {
         $year = (int) $request->query('year', now()->year);
@@ -32,9 +29,7 @@ class AttendanceRecordController extends Controller
         return AttendanceRecordResource::collection($records);
     }
 
-    /**
-     * 저장 (해당 날짜 행의 한 필드만 갱신, 나머지 필드는 보존)
-     */
+    // 해당 날짜 행의 한 필드만 갱신, 나머지 필드는 보존
     public function store(StoreAttendanceRecordRequest $request)
     {
         $type = AttendanceType::from($request->validated('type'));
@@ -51,7 +46,7 @@ class AttendanceRecordController extends Controller
                 $values,
             );
         } catch (UniqueConstraintViolationException) {
-            // 같은 날짜에 대한 동시 요청(예: 토글 버튼 연타)으로 행이 이미 생성된 경우 재시도한다.
+            // 같은 날짜에 대한 동시 요청(예: 토글 버튼 연타)으로 행이 이미 생성된 경우 재시도
             $record = AttendanceRecord::updateOrCreate(
                 ['date' => $request->validated('date')],
                 $values,
@@ -63,9 +58,7 @@ class AttendanceRecordController extends Controller
         return AttendanceRecordResource::make($record);
     }
 
-    /**
-     * 삭제 (해당 날짜 행의 한 필드만 초기화, 모든 필드가 비면 행 자체를 삭제)
-     */
+    // 해당 날짜 행의 한 필드만 초기화, 모든 필드가 비면 행 자체를 삭제
     public function destroy(DestroyAttendanceRecordRequest $request, AttendanceRecord $attendanceRecord)
     {
         $type = AttendanceType::from($request->validated('type'));
@@ -82,9 +75,6 @@ class AttendanceRecordController extends Controller
         return response()->noContent();
     }
 
-    /**
-     * 예측 (해당 날짜의 예상 출근/퇴근 시간)
-     */
     public function forecast(Request $request, AttendanceForecastService $forecastService)
     {
         $request->validate([
@@ -98,9 +88,7 @@ class AttendanceRecordController extends Controller
         return response()->json($forecastService->predict($date));
     }
 
-    /**
-     * 예측 (한 달치 날짜별 예상 출근/퇴근 시간 - 달력 미리보기용)
-     */
+    // 달력 미리보기용 한 달치 날짜별 예상 출/퇴근 시간
     public function forecastRange(Request $request, AttendanceForecastService $forecastService)
     {
         $request->validate([

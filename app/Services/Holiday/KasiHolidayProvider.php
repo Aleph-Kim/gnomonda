@@ -16,12 +16,13 @@ class KasiHolidayProvider implements HolidayProvider
     public function yearHolidays(int $year): array
     {
         if (empty($this->serviceKey)) {
+            // 키 미설정 환경(예: 로컬)에서도 앱이 죽지 않도록 빈 결과로 처리
             return [];
         }
 
         $holidays = [];
 
-        // 이 API는 월 단위로만 조회되므로 1~12월을 모두 호출해 합친다.
+        // 이 API는 월 단위로만 조회되므로 1~12월을 모두 호출해 합산
         for ($month = 1; $month <= 12; $month++) {
             $holidays += $this->fetchMonth($year, $month);
         }
@@ -29,9 +30,6 @@ class KasiHolidayProvider implements HolidayProvider
         return $holidays;
     }
 
-    /**
-     * @return array<string, string>
-     */
     private function fetchMonth(int $year, int $month): array
     {
         try {
@@ -54,7 +52,7 @@ class KasiHolidayProvider implements HolidayProvider
 
         $items = $response->json('response.body.items.item') ?? [];
 
-        // 결과가 1건이면 배열이 아니라 단일 오브젝트로 온다.
+        // 결과 1건일 때는 배열이 아닌 단일 오브젝트 형태
         if (isset($items['locdate'])) {
             $items = [$items];
         }

@@ -37,9 +37,7 @@ class AttendanceForecastService
         private readonly KoreanHolidayService $holidayService,
     ) {}
 
-    /**
-     * 주어진 날짜의 예상 출근/퇴근 시간을 예측한다. (해당 날짜 이전 기록만 사용)
-     */
+    // 주어진 날짜의 예상 출근/퇴근 시간 예측 (해당 날짜 이전 기록만 사용)
     public function predict(Carbon $date): array
     {
         $since = $date->copy()->subDays(self::LOOKBACK_DAYS);
@@ -59,10 +57,8 @@ class AttendanceForecastService
     }
 
     /**
-     * 기간(양 끝 포함) 내 날짜별 예측을 한 번에 계산한다 (달력에서 미리보기로 사용).
-     * 날씨는 필요한 전체 구간을 한 번에 가져와 공유한다 (날짜별로 외부 API를 반복 호출하지 않도록).
-     *
-     * @return array<string, array{check_in_time: ?string, check_out_time: ?string}>
+     * 기간(양 끝 포함) 내 날짜별 예측을 한 번에 계산 (달력에서 미리보기로 사용)
+     * 날씨는 필요한 전체 구간을 한 번에 가져와 공유, 날짜별 외부 API 반복 호출 방지
      */
     public function predictRange(Carbon $start, Carbon $end): array
     {
@@ -82,25 +78,18 @@ class AttendanceForecastService
         return $forecasts;
     }
 
-    /**
-     * @param  array<string, WeatherSnapshot>  $weatherRange
-     */
     private function predictTime(Carbon $date, string $column, array $weatherRange): ?string
     {
         return $this->computePrediction($date, $column, $weatherRange)['value'];
     }
 
-    /**
-     * @param  array<string, WeatherSnapshot>  $weatherRange
-     * @return array{value: ?string, explanation: ?string}
-     */
     private function computePrediction(Carbon $date, string $column, array $weatherRange): array
     {
         $since = $date->copy()->subDays(self::LOOKBACK_DAYS);
 
         $records = AttendanceRecord::query()
             ->whereNotNull($column)
-            // 미팅이 있는 날은 정상 출퇴근 패턴을 대표하지 않으므로 표본에서 제외한다.
+            // 미팅 있는 날은 정상 출퇴근 패턴 비대표로 판단해 표본에서 제외
             ->where('meeting', false)
             ->whereBetween('date', [$since->toDateString(), $date->copy()->subDay()->toDateString()])
             ->get(['date', $column]);
@@ -109,7 +98,7 @@ class AttendanceForecastService
             return ['value' => null, 'explanation' => null];
         }
 
-        // 같은 요일 기록이 한 번도 없으면(예: 평일 기록만 있는데 주말을 예측) 추측하지 않는다.
+        // 같은 요일 기록이 한 번도 없으면(예: 평일 기록만 있는데 주말을 예측) 예측 제외
         $hasSameWeekdayRecord = $records->contains(fn (AttendanceRecord $record) => $record->date->dayOfWeek === $date->dayOfWeek);
 
         if (! $hasSameWeekdayRecord) {
@@ -141,12 +130,7 @@ class AttendanceForecastService
         ];
     }
 
-    /**
-     * 예측값의 근거를 사람이 읽을 수 있는 한 문장으로 만든다.
-     *
-     * @param  Collection<int, AttendanceRecord>  $records
-     * @param  array<string, WeatherSnapshot>  $weatherRange
-     */
+    // 예측값의 근거를 사람이 읽을 수 있는 한 문장으로 구성
     private function buildExplanation(Carbon $date, string $column, string $value, Collection $records, array $weatherRange, ?WeatherCategory $targetWeather, string $targetContext): string
     {
         $label = $column === 'check_in_time' ? '출근' : '퇴근';
@@ -163,6 +147,7 @@ class AttendanceForecastService
             $clauses[] = "최근 {$sameWeekday->count()}번의 {$weekdayLabel}요일 {$label} 시간 평균({$weekdayAverage})";
         }
 
+        // Unknown 카테고리는 라벨이 없어 날씨 근거 문장에서 제외
         if ($targetWeather !== null && isset(self::WEATHER_LABELS[$targetWeather->value])) {
             $weatherMatches = $records
                 ->filter(fn (AttendanceRecord $record) => ($weatherRange[$record->date->toDateString()] ?? null)?->category() === $targetWeather)
@@ -179,6 +164,7 @@ class AttendanceForecastService
         if (isset(self::HOLIDAY_LABELS[$targetContext])) {
             $holidayMatches = $records->filter(fn (AttendanceRecord $record) => $this->holidayService->context($record->date) === $targetContext);
 
+            // 공휴일 문맥은 시각값을 정당화하는 건 아니라 정황적 유사성 근거라 존재 여부만 확인
             if ($holidayMatches->isNotEmpty()) {
                 $clauses[] = self::HOLIDAY_LABELS[$targetContext].' 기록';
             }
@@ -201,15 +187,13 @@ class AttendanceForecastService
     }
 
     /**
-     * 과거 하루치 기록의 가중치. 최근 기록일수록, 목표 날짜와 요일/날씨/공휴일
-     * 전후 문맥이 비슷할수록 더 크게 반영한다.
-     *
-     * @param  array<string, WeatherSnapshot>  $weatherRange
+     * 과거 하루치 기록의 가중치, 최근 기록일수록, 목표 날짜와 요일/날씨/공휴일 전후 문맥이 비슷할수록 더 크게 반영
      */
     private function weight(Carbon $recordDate, Carbon $targetDate, array $weatherRange, ?WeatherCategory $targetWeather, string $targetContext): float
     {
         $daysAgo = $recordDate->diffInDays($targetDate);
-        $weight = 30 / (30 + $daysAgo); // 최근 기록일수록 완만하게 큰 가중치
+        // 최근 기록일수록 완만하게 큰 가중치
+        $weight = 30 / (30 + $daysAgo);
 
         if ($recordDate->dayOfWeek === $targetDate->dayOfWeek) {
             $weight *= 3.0;

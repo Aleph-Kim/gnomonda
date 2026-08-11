@@ -16,7 +16,7 @@ class SyncHolidays extends Command
     {
         $year = now()->year;
 
-        // 올해 + 내년까지 동기화해서, 연말에도 다음 해 달력에 공휴일이 미리 보이게 한다.
+        // 올해 + 내년까지 동기화, 연말에도 다음 해 달력에 공휴일 미리 표시
         $this->syncYear($provider, $year);
         $this->syncYear($provider, $year + 1);
 
@@ -28,7 +28,7 @@ class SyncHolidays extends Command
         $holidays = $provider->yearHolidays($year);
 
         if (empty($holidays)) {
-            // API 실패 등으로 못 가져온 경우 기존 데이터를 지우지 않고 유지한다.
+            // API 실패 등으로 못 가져온 경우 기존 데이터 유지 (삭제하지 않음)
             return;
         }
 

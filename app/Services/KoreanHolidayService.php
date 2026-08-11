@@ -7,7 +7,7 @@ use Illuminate\Support\Carbon;
 
 class KoreanHolidayService
 {
-    /** @var array<int, array<string, string>> 연도별 공휴일 캐시 (요청당 반복 조회 방지) */
+    // 연도별 공휴일 캐시 (요청당 반복 조회 방지)
     private array $yearCache = [];
 
     public function isHoliday(Carbon $date): bool
@@ -25,9 +25,7 @@ class KoreanHolidayService
         return $this->isHoliday($date->copy()->subDay());
     }
 
-    /**
-     * 예측 알고리즘에서 유사도 비교용으로 쓰는 날짜의 공휴일 문맥을 반환한다.
-     */
+    // 예측 알고리즘에서 유사도 비교용으로 쓰는 날짜의 공휴일 문맥 반환
     public function context(Carbon $date): string
     {
         return match (true) {
@@ -38,9 +36,7 @@ class KoreanHolidayService
         };
     }
 
-    /**
-     * @return array<string, string> 날짜(Y-m-d) => 공휴일명
-     */
+    // 공휴일 목록 (날짜(Y-m-d) => 공휴일명)
     public function forYear(int $year): array
     {
         return $this->yearCache[$year] ??= HolidayRecord::query()

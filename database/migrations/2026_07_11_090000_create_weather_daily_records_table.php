@@ -6,9 +6,6 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * 마이그레이션을 실행한다.
-     */
     public function up(): void
     {
         Schema::create('weather_daily_records', function (Blueprint $table) {
@@ -21,9 +18,6 @@ return new class extends Migration
         });
     }
 
-    /**
-     * 마이그레이션을 되돌린다.
-     */
     public function down(): void
     {
         Schema::dropIfExists('weather_daily_records');
