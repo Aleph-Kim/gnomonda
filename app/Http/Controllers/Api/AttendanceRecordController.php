@@ -62,6 +62,9 @@ class AttendanceRecordController extends Controller
     {
         $type = AttendanceType::from($request->validated('type'));
 
+        // 출/퇴근은 미래 날짜 삭제(초기화) 불가, 미팅은 예외
+        abort_if($type !== AttendanceType::Meeting && $attendanceRecord->date->isFuture(), 422);
+
         match ($type) {
             AttendanceType::CheckIn => $attendanceRecord->check_in_time = null,
             AttendanceType::CheckOut => $attendanceRecord->check_out_time = null,

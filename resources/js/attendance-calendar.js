@@ -344,6 +344,10 @@ function todayString() {
     return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 }
 
+function isFutureDate(date) {
+    return date > todayString();
+}
+
 function currentTimeString() {
     const now = new Date();
     return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
@@ -473,6 +477,16 @@ function renderTimePicker(type) {
     const hasRecord = Boolean(recordFor(state.selectedDate)?.[TIME_FIELD[type]]);
     const isForecast = !hasRecord && state.isForecast[type];
 
+    // 미래 날짜의 출/퇴근은 등록/수정 불가 — 예측값만 읽기 전용으로 보여줌
+    if (isFutureDate(state.selectedDate)) {
+        return `
+            <div class="flex items-baseline gap-2 px-2 py-1">
+                <span class="text-[30px] font-semibold tabular-nums ${isForecast ? 'text-[#8B5CF6]' : 'text-[#A8A8AD]'}">${value}</span>
+                ${isForecast ? '<span class="text-[12px] font-medium text-[#8B5CF6]">예측</span>' : ''}
+            </div>
+        `;
+    }
+
     return `
         <div data-time-picker="${type}">
             <button
@@ -571,16 +585,23 @@ function renderDatePanel() {
         .map((type) => {
             const record = recordFor(state.selectedDate);
             const hasValue = Boolean(record?.[TIME_FIELD[type]]);
+            const isFuture = isFutureDate(state.selectedDate);
 
             return `
                 <div class="mb-5 border-b border-[#ECECEE] pb-5">
                     <p class="mb-1 text-[14px] font-medium text-[#6B6B70]">${TYPE_LABELS[type]}</p>
                     <div class="flex flex-wrap items-center justify-between gap-y-2 gap-x-3">
                         ${renderTimePicker(type)}
+                        ${
+                            isFuture
+                                ? ''
+                                : `
                         <div class="flex shrink-0 items-center gap-4">
                             <button type="button" data-action="save" data-type="${type}" class="rounded-xl bg-[#2B2B30] px-5 py-2.5 text-[16px] font-semibold text-white transition hover:bg-black active:scale-[.98]">저장</button>
                             ${hasValue ? `<button type="button" data-action="delete" data-id="${record.id}" data-type="${type}" class="text-[16px] font-medium text-[#E5484D]">삭제</button>` : ''}
                         </div>
+                        `
+                        }
                     </div>
                 </div>
             `;

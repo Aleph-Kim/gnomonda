@@ -4,6 +4,7 @@ namespace App\Http\Requests;
 
 use App\Enums\AttendanceType;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Enum;
 
 class StoreAttendanceRecordRequest extends FormRequest
@@ -11,8 +12,15 @@ class StoreAttendanceRecordRequest extends FormRequest
     public function rules(): array
     {
         return [
-            // 날짜
-            'date' => ['required', 'date_format:Y-m-d'],
+            // 날짜 (출/퇴근은 미래 날짜 등록 불가, 미팅은 예외)
+            'date' => [
+                'required',
+                'date_format:Y-m-d',
+                Rule::when(
+                    $this->input('type') !== AttendanceType::Meeting->value,
+                    ['before_or_equal:today'],
+                ),
+            ],
             // 갱신할 필드 구분자
             'type' => ['required', new Enum(AttendanceType::class)],
             // 출/퇴근 시간 (type이 check_in 또는 check_out일 때만)
