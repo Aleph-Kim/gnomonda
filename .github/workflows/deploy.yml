@@ -67,5 +67,13 @@ jobs:
             --network ${{ secrets.NETWORK_NAME }} \
             ${{ secrets.DOCKER_USERNAME }}/${{ secrets.PROJECT_NAME }}:latest
 
+          # DB 마이그레이션 실행
+          docker exec -u www-data ${{ secrets.PROJECT_NAME }} php artisan migrate --force
+
+          # 설정/라우트/뷰 캐시 갱신
+          docker exec ${{ secrets.PROJECT_NAME }} php artisan config:cache
+          docker exec ${{ secrets.PROJECT_NAME }} php artisan route:cache
+          docker exec ${{ secrets.PROJECT_NAME }} php artisan view:cache
+
           # 미사용 이미지 정리
           docker image prune -f

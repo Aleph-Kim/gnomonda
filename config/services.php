@@ -35,4 +35,8 @@ return [
         ],
     ],
 
+    'kasi' => [
+        'key' => env('HOLIDAY_SERVICE_KEY'),
+    ],
+
 ];

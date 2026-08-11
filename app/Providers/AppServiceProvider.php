@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Services\Holiday\HolidayProvider;
+use App\Services\Holiday\KasiHolidayProvider;
 use App\Services\Weather\OpenMeteoWeatherProvider;
 use App\Services\Weather\WeatherProvider;
 use Illuminate\Support\ServiceProvider;
@@ -21,6 +23,10 @@ class AppServiceProvider extends ServiceProvider
                 timezone: config('weather.timezone'),
             ),
         });
+
+        $this->app->bind(HolidayProvider::class, fn () => new KasiHolidayProvider(
+            serviceKey: config('services.kasi.key'),
+        ));
     }
 
     /**

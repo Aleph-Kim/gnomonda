@@ -27,6 +27,8 @@ const state = {
     year: today.getFullYear(),
     month: today.getMonth() + 1, // 1-12
     records: [],
+    holidays: new Map(), // 'YYYY-MM-DD' => 공휴일명 — /api/holidays 값 그대로 사용, 계산/추정 없음
+    holidayYears: new Set(), // 이미 가져온 연도 (중복 요청 방지)
     monthForecasts: {}, // date('YYYY-MM-DD') => { check_in_time, check_out_time } | undefined
     selectedDate: null,
     openPicker: null, // null | 'check_in' | 'check_out'
@@ -73,12 +75,52 @@ async function deleteRecord(id, type) {
     if (!res.ok) throw new Error('삭제에 실패했습니다.');
 }
 
+async function fetchHolidays(year) {
+    const res = await fetch(`/api/holidays?year=${year}`, {
+        headers: { Accept: 'application/json' },
+    });
+
+    if (!res.ok) throw new Error('공휴일 목록을 불러오지 못했습니다.');
+
+    const json = await res.json();
+
+    return json.data;
+}
+
+async function loadHolidaysForYear(year) {
+    if (state.holidayYears.has(year)) return;
+
+    try {
+        const holidays = await fetchHolidays(year);
+        Object.entries(holidays).forEach(([d, name]) => state.holidays.set(d, name));
+        state.holidayYears.add(year);
+
+        // 공휴일 목록이 늦게 도착해 이미 예측값이 적용된 상태라면(가드가 빈 목록을 통과한 경우) 되돌린다.
+        if (state.selectedDate && state.holidays.has(state.selectedDate) && (state.isForecast.check_in || state.isForecast.check_out)) {
+            const record = recordFor(state.selectedDate);
+            state.pendingTime = {
+                check_in: record?.check_in_time ?? DEFAULT_TIME.check_in,
+                check_out: record?.check_out_time ?? DEFAULT_TIME.check_out,
+            };
+            state.isForecast = { check_in: false, check_out: false };
+            state.forecastExplanation = { check_in: null, check_out: null };
+        }
+
+        render();
+    } catch {
+        // 공휴일 표시 실패 시 조용히 무시 (달력 자체는 정상 동작)
+    }
+}
+
 async function loadMonth() {
     const year = state.year;
     const month = state.month;
 
     state.records = await fetchRecords(year, month);
     render();
+
+    // 완료되면 스스로 다시 render()를 호출한다.
+    loadHolidaysForYear(year);
 
     try {
         const forecasts = await fetchForecastRange(year, month);
@@ -171,6 +213,7 @@ function selectDate(date) {
 
 async function applyForecast(date, record) {
     if (record?.check_in_time && record?.check_out_time) return; // 둘 다 이미 저장돼 있으면 예측 불필요
+    if (state.holidays.has(date)) return; // 공휴일은 예측하지 않음
 
     let forecast;
     try {
@@ -282,10 +325,16 @@ function todayString() {
     return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 }
 
+function escapeHtml(str) {
+    const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    return str.replace(/[&<>"']/g, (c) => map[c]);
+}
+
 function formatDateHeader(date) {
     const [y, m, d] = date.split('-').map(Number);
     const weekday = WEEKDAYS[new Date(y, m - 1, d).getDay()];
-    return `${m}월 ${d}일 ${weekday}요일`;
+    const holidayName = state.holidays.get(date);
+    return `${m}월 ${d}일 ${weekday}요일${holidayName ? ` · ${escapeHtml(holidayName)}` : ''}`;
 }
 
 function renderCalendarGrid() {
@@ -301,6 +350,8 @@ function renderCalendarGrid() {
     for (let day = 1; day <= daysInMonth; day++) {
         const date = dateString(day);
         const weekday = new Date(state.year, state.month - 1, day).getDay();
+        const holidayName = state.holidays.get(date);
+        const isHoliday = state.holidays.has(date);
         const record = recordFor(date);
         const checkIn = record?.check_in_time ?? null;
         const checkOut = record?.check_out_time ?? null;
@@ -317,7 +368,7 @@ function renderCalendarGrid() {
         } else {
             cellClass += ' hover:bg-[#F0F0F2]';
             if (isToday) cellClass += ' bg-[#F0F0F2]';
-            if (weekday === 0) numberClass += ' text-[#E57373]';
+            if (isHoliday || weekday === 0) numberClass += ' text-[#E57373]';
             else if (weekday === 6) numberClass += ' text-[#64B5F6]';
             else numberClass += ' text-[#1A1A1A]';
             numberClass += isToday ? ' font-semibold' : ' font-normal';
@@ -337,12 +388,12 @@ function renderCalendarGrid() {
                     ${meeting ? `<span class="h-[5px] w-[5px] rounded-full ${meetingDot}"></span>` : ''}
                 </span>
                 <span class="flex flex-col items-center leading-tight">
-                    ${checkIn ? `<span class="text-[9px] font-medium tabular-nums ${inColor}">${checkIn}</span>` : ''}
-                    ${checkOut ? `<span class="text-[9px] font-medium tabular-nums ${outColor}">${checkOut}</span>` : ''}
+                    ${checkIn ? `<span class="text-[11px] font-medium tabular-nums ${inColor}">${checkIn}</span>` : ''}
+                    ${checkOut ? `<span class="text-[11px] font-medium tabular-nums ${outColor}">${checkOut}</span>` : ''}
                 </span>
             `;
-        } else if (weekday !== 0 && weekday !== 6) {
-            // 실제 기록이 없는 평일이면 예측값을 옅은 색으로 미리 보여준다.
+        } else if (weekday !== 0 && weekday !== 6 && !isHoliday) {
+            // 실제 기록이 없는 평일(공휴일 제외)이면 예측값을 옅은 색으로 미리 보여준다.
             const forecast = state.monthForecasts[date];
             const forecastIn = forecast?.check_in_time ?? null;
             const forecastOut = forecast?.check_out_time ?? null;
@@ -351,15 +402,18 @@ function renderCalendarGrid() {
             if (forecastIn || forecastOut) {
                 recordMark = `
                     <span class="flex flex-col items-center leading-tight opacity-70">
-                        ${forecastIn ? `<span class="text-[9px] font-medium tabular-nums ${forecastColor}">${forecastIn}</span>` : ''}
-                        ${forecastOut ? `<span class="text-[9px] font-medium tabular-nums ${forecastColor}">${forecastOut}</span>` : ''}
+                        ${forecastIn ? `<span class="text-[11px] font-medium tabular-nums ${forecastColor}">${forecastIn}</span>` : ''}
+                        ${forecastOut ? `<span class="text-[11px] font-medium tabular-nums ${forecastColor}">${forecastOut}</span>` : ''}
                     </span>
                 `;
             }
+        } else if (isHoliday) {
+            const holidayColor = isSelected ? 'text-white/80' : 'text-[#E57373]/80';
+            recordMark = `<span class="max-w-full truncate text-[11px] font-medium ${holidayColor}">${escapeHtml(holidayName)}</span>`;
         }
 
         cells.push(`
-            <button type="button" data-date="${date}" class="${cellClass}">
+            <button type="button" data-date="${date}" class="${cellClass}"${holidayName ? ` title="${escapeHtml(holidayName)}"` : ''}>
                 <span class="${numberClass}">${day}</span>
                 <span class="flex flex-1 flex-col items-center justify-center gap-1">
                     ${recordMark}
@@ -375,7 +429,7 @@ function renderWheelColumn(kind, values) {
     const items = values
         .map(
             (v) => `
-                <button type="button" data-wheel-value="${v}" class="flex h-10 w-full shrink-0 snap-center items-center justify-center text-[22px] tabular-nums text-[#1A1A1A]">${v}</button>
+                <button type="button" data-wheel-value="${v}" class="flex h-10 w-full shrink-0 snap-center items-center justify-center text-[24px] tabular-nums text-[#1A1A1A]">${v}</button>
             `
         )
         .join('');
@@ -403,9 +457,9 @@ function renderTimePicker(type) {
                 data-type="${type}"
                 class="-mx-2 -my-1 flex items-baseline gap-2 rounded-lg px-2 py-1 hover:bg-[#F0F0F2]"
             >
-                <span class="text-[28px] font-semibold tabular-nums ${hasRecord ? 'text-[#1A1A1A]' : isForecast ? 'text-[#8B5CF6]' : 'text-[#A8A8AD]'}">${value}</span>
-                ${isForecast ? '<span class="text-[11px] font-medium text-[#8B5CF6]">예측</span>' : ''}
-                <span class="text-[13px] font-medium text-[#6B6B70]">수정</span>
+                <span class="text-[30px] font-semibold tabular-nums ${hasRecord ? 'text-[#1A1A1A]' : isForecast ? 'text-[#8B5CF6]' : 'text-[#A8A8AD]'}">${value}</span>
+                ${isForecast ? '<span class="text-[12px] font-medium text-[#8B5CF6]">예측</span>' : ''}
+                <span class="text-[14px] font-medium text-[#6B6B70]">수정</span>
             </button>
             ${
                 isOpen
@@ -414,13 +468,13 @@ function renderTimePicker(type) {
                     <div class="w-full max-w-sm rounded-t-[24px] bg-white shadow-[0_-8px_40px_rgba(0,0,0,0.16)] sm:rounded-[20px]">
                         <div class="mx-auto mt-3 h-1 w-9 rounded-full bg-[#A8A8AD]/40 sm:hidden"></div>
                         <div class="flex items-center justify-between border-b border-[#ECECEE] px-5 py-4">
-                            <button type="button" data-action="cancel-time" class="text-[15px] font-medium text-[#6B6B70]">취소</button>
-                            <p class="text-[15px] font-semibold text-[#1A1A1A]">${TYPE_LABELS[type]} 시간</p>
-                            <button type="button" data-action="confirm-time" class="text-[15px] font-semibold text-[#2B2B30]">완료</button>
+                            <button type="button" data-action="cancel-time" class="text-[16px] font-medium text-[#6B6B70]">취소</button>
+                            <p class="text-[16px] font-semibold text-[#1A1A1A]">${TYPE_LABELS[type]} 시간</p>
+                            <button type="button" data-action="confirm-time" class="text-[16px] font-semibold text-[#2B2B30]">완료</button>
                         </div>
                         <div class="relative h-[220px] px-8">
                             <div class="pointer-events-none absolute inset-x-8 top-1/2 h-10 -translate-y-1/2 border-y border-[#ECECEE] bg-[#F0F0F2]/60"></div>
-                            <span class="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-[22px] text-[#A8A8AD]">:</span>
+                            <span class="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-[24px] text-[#A8A8AD]">:</span>
                             <div class="relative flex h-full justify-center gap-6">
                                 ${renderWheelColumn('hour', HOURS)}
                                 ${renderWheelColumn('minute', MINUTES)}
@@ -442,9 +496,9 @@ function renderMeetingRow() {
 
     return `
         <div>
-            <p class="mb-1 text-[13px] font-medium text-[#6B6B70]">${TYPE_LABELS.meeting}</p>
+            <p class="mb-1 text-[14px] font-medium text-[#6B6B70]">${TYPE_LABELS.meeting}</p>
             <div class="flex items-center justify-between">
-                <span class="text-[15px] text-[#1A1A1A]">${active ? '있음' : '없음'}</span>
+                <span class="text-[16px] text-[#1A1A1A]">${active ? '있음' : '없음'}</span>
                 <button
                     type="button"
                     role="switch"
@@ -470,14 +524,14 @@ function renderTodaySummary() {
 
     const item = (label, value, isForecast) => `
         <div>
-            <p class="text-[12px] font-medium text-[#6B6B70]">${isForecast ? `예상 ${label}` : label}</p>
-            <p class="text-[22px] font-semibold tabular-nums ${isForecast ? 'text-[#8B5CF6]' : 'text-[#1A1A1A]'}">${value ?? '--:--'}</p>
+            <p class="text-[13px] font-medium text-[#6B6B70]">${isForecast ? `예상 ${label}` : label}</p>
+            <p class="text-[24px] font-semibold tabular-nums ${isForecast ? 'text-[#8B5CF6]' : 'text-[#1A1A1A]'}">${value ?? '--:--'}</p>
         </div>
     `;
 
     return `
         <div class="mb-4 rounded-[20px] bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_8px_24px_-12px_rgba(0,0,0,0.12)] sm:p-6">
-            <p class="mb-3 text-[13px] font-medium text-[#6B6B70]">오늘 · ${formatDateHeader(todayString())}</p>
+            <p class="mb-3 text-[14px] font-medium text-[#6B6B70]">오늘 · ${formatDateHeader(todayString())}</p>
             <div class="flex items-center gap-8">
                 ${item('출근', checkIn, checkInIsForecast)}
                 ${item('퇴근', checkOut, checkOutIsForecast)}
@@ -496,12 +550,12 @@ function renderDatePanel() {
 
             return `
                 <div class="mb-5 border-b border-[#ECECEE] pb-5">
-                    <p class="mb-1 text-[13px] font-medium text-[#6B6B70]">${TYPE_LABELS[type]}</p>
+                    <p class="mb-1 text-[14px] font-medium text-[#6B6B70]">${TYPE_LABELS[type]}</p>
                     <div class="flex flex-wrap items-center justify-between gap-y-2 gap-x-3">
                         ${renderTimePicker(type)}
                         <div class="flex shrink-0 items-center gap-4">
-                            <button type="button" data-action="save" data-type="${type}" class="rounded-xl bg-[#2B2B30] px-5 py-2.5 text-[15px] font-semibold text-white transition hover:bg-black active:scale-[.98]">저장</button>
-                            ${hasValue ? `<button type="button" data-action="delete" data-id="${record.id}" data-type="${type}" class="text-[15px] font-medium text-[#E5484D]">삭제</button>` : ''}
+                            <button type="button" data-action="save" data-type="${type}" class="rounded-xl bg-[#2B2B30] px-5 py-2.5 text-[16px] font-semibold text-white transition hover:bg-black active:scale-[.98]">저장</button>
+                            ${hasValue ? `<button type="button" data-action="delete" data-id="${record.id}" data-type="${type}" class="text-[16px] font-medium text-[#E5484D]">삭제</button>` : ''}
                         </div>
                     </div>
                 </div>
@@ -511,7 +565,7 @@ function renderDatePanel() {
 
     return `
         <div class="mt-8 border-t border-[#ECECEE] pt-6">
-            <p class="mb-6 text-[15px] font-semibold text-[#1A1A1A]">${formatDateHeader(state.selectedDate)}</p>
+            <p class="mb-6 text-[16px] font-semibold text-[#1A1A1A]">${formatDateHeader(state.selectedDate)}</p>
             ${timeRows}
             ${renderMeetingRow()}
         </div>
@@ -521,22 +575,22 @@ function renderDatePanel() {
 function renderAlgorithmPanel() {
     return `
         <div class="rounded-[20px] bg-white p-6 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_8px_24px_-12px_rgba(0,0,0,0.12)]">
-            <p class="mb-2 text-[15px] font-semibold text-[#1A1A1A]">예측 계산 방식</p>
+            <p class="mb-2 text-[16px] font-semibold text-[#1A1A1A]">예측 계산 방식</p>
             <div class="rounded-xl bg-[#F6F6F7] p-4">
-                <p class="mb-3 text-[12px] leading-relaxed text-[#6B6B70]">
+                <p class="mb-3 text-[13px] leading-relaxed text-[#6B6B70]">
                     최근 60일간의 출퇴근 기록(미팅 있었던 날 제외) 중, 아래 조건이 겹치는 기록일수록 더 크게 반영해 평균을 냅니다.
                 </p>
                 <ul class="space-y-1.5">
                     ${FORECAST_WEIGHT_FACTORS.map(
                         (f) => `
-                        <li class="flex items-center justify-between text-[12px] text-[#6B6B70]">
+                        <li class="flex items-center justify-between text-[13px] text-[#6B6B70]">
                             <span>${f.label}</span>
                             <span class="font-semibold text-[#1A1A1A]">${f.value}</span>
                         </li>
                     `
                     ).join('')}
                 </ul>
-                <p class="mt-3 text-[11px] text-[#A8A8AD]">같은 요일 기록이 한 번도 없으면 예측하지 않습니다.</p>
+                <p class="mt-3 text-[12px] text-[#A8A8AD]">같은 요일 기록이 한 번도 없으면 예측하지 않습니다.</p>
             </div>
         </div>
     `;
@@ -550,8 +604,8 @@ function renderForecastBasisPanel() {
         .map(
             (type) => `
                 <div class="mb-4 last:mb-0">
-                    <p class="mb-1 text-[13px] font-semibold text-[#8B5CF6]">예상 ${TYPE_LABELS[type]}</p>
-                    <p class="text-[13px] leading-relaxed text-[#6B6B70]">${state.forecastExplanation[type]}</p>
+                    <p class="mb-1 text-[14px] font-semibold text-[#8B5CF6]">예상 ${TYPE_LABELS[type]}</p>
+                    <p class="text-[14px] leading-relaxed text-[#6B6B70]">${state.forecastExplanation[type]}</p>
                 </div>
             `
         )
@@ -561,7 +615,7 @@ function renderForecastBasisPanel() {
 
     return `
         <div class="mt-6 rounded-[20px] bg-white p-6 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_8px_24px_-12px_rgba(0,0,0,0.12)]">
-            <p class="mb-4 text-[15px] font-semibold text-[#1A1A1A]">예측 근거</p>
+            <p class="mb-4 text-[16px] font-semibold text-[#1A1A1A]">예측 근거</p>
             ${sections}
         </div>
     `;
@@ -579,7 +633,7 @@ function render() {
         <div class="lg:grid lg:grid-cols-[1fr_320px] lg:items-start lg:gap-6">
             <div class="rounded-[20px] bg-white p-6 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_8px_24px_-12px_rgba(0,0,0,0.12)] sm:p-8">
                 <div class="flex items-center justify-between">
-                    <h1 class="text-[22px] font-semibold text-[#1A1A1A]">${state.year}년 ${state.month}월</h1>
+                    <h1 class="text-[24px] font-semibold text-[#1A1A1A]">${state.year}년 ${state.month}월</h1>
                     <div class="flex items-center gap-1">
                         <button type="button" data-action="prev-month" class="flex h-9 w-9 items-center justify-center rounded-lg text-[#6B6B70] hover:bg-[#F0F0F2] hover:text-[#1A1A1A]" aria-label="이전 달">
                             ${ICONS.chevronLeft}
@@ -589,7 +643,7 @@ function render() {
                         </button>
                     </div>
                 </div>
-                <div class="mt-8 grid grid-cols-7 gap-1 border-b border-[#ECECEE] pb-2 text-center text-xs font-medium text-[#A8A8AD]">
+                <div class="mt-8 grid grid-cols-7 gap-1 border-b border-[#ECECEE] pb-2 text-center text-[14px] font-medium text-[#A8A8AD]">
                     ${WEEKDAYS.map((w, i) => `<div class="${i === 0 ? 'text-[#E57373]' : i === 6 ? 'text-[#64B5F6]' : ''}">${w}</div>`).join('')}
                 </div>
                 <div class="mt-2 grid grid-cols-7 gap-1">
