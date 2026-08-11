@@ -42,17 +42,18 @@ class AttendanceRecordController extends Controller
         };
 
         $isFirstRegistration = ! $attendanceRecordService->isAlreadyRegistered($request->validated('date'), $type);
+        $isToday = $request->validated('date') === now()->toDateString();
 
         $record = $attendanceRecordService->upsert($request->validated('date'), $values);
 
-        // 출근/퇴근 최초 등록 시에만 슬랙 알림 발송 (수정 및 미팅 여부 변경은 제외)
+        // 출근/퇴근 당일 최초 등록 시에만 슬랙 알림 발송 (과거 날짜 등록·수정 및 미팅 여부 변경은 제외)
         $message = match ($type) {
             AttendanceType::CheckIn => 'He is coming...',
             AttendanceType::CheckOut => 'He is gone...',
             AttendanceType::Meeting => null,
         };
 
-        if ($message !== null && $isFirstRegistration) {
+        if ($message !== null && $isFirstRegistration && $isToday) {
             $slackNotifier->send($message);
         }
 
