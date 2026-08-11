@@ -41,7 +41,7 @@ class SlackCommandController extends Controller
         if ($attendanceRecordService->isAlreadyRegistered($now->format('Y-m-d'), $type)) {
             return response()->json([
                 'response_type' => 'ephemeral',
-                'text' => sprintf('이미 %s 등록되어 있습니다.', $type === AttendanceType::CheckIn ? '출근' : '퇴근'),
+                'text' => sprintf('이미 %s 등록되어 있습니다.', $type === AttendanceType::CheckIn ? '출근이' : '퇴근이'),
             ]);
         }
 
