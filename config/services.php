@@ -42,4 +42,8 @@ return [
         'key' => env('HOLIDAY_SERVICE_KEY'),
     ],
 
+    'access' => [
+        'password' => env('SITE_ACCESS_PASSWORD'),
+    ],
+
 ];

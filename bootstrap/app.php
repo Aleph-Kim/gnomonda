@@ -23,6 +23,12 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->alias([
             'slack.verify' => \App\Http\Middleware\VerifySlackSignature::class,
+            'site.access' => \App\Http\Middleware\CheckSiteAccess::class,
+        ]);
+
+        // api/*는 SPA가 같은 오리진에서 fetch로 호출하며 CSRF 토큰을 보내지 않음
+        $middleware->preventRequestForgery(except: [
+            'api/*',
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
