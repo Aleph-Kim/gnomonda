@@ -29,6 +29,9 @@ return [
     ],
 
     'slack' => [
+        'signing_secret' => env('SLACK_SIGNING_SECRET'),
+        // 슬래시 커맨드 허용 채널 ID (미설정 시 채널 제한 없음)
+        'allowed_channel_id' => env('SLACK_ALLOWED_CHANNEL_ID'),
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),

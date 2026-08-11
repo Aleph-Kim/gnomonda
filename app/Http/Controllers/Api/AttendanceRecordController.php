@@ -9,8 +9,8 @@ use App\Http\Requests\StoreAttendanceRecordRequest;
 use App\Http\Resources\AttendanceRecordResource;
 use App\Models\AttendanceRecord;
 use App\Services\AttendanceForecastService;
+use App\Services\AttendanceRecordService;
 use App\Services\Slack\SlackNotifier;
-use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 
@@ -31,7 +31,7 @@ class AttendanceRecordController extends Controller
     }
 
     // 해당 날짜 행의 한 필드만 갱신, 나머지 필드는 보존
-    public function store(StoreAttendanceRecordRequest $request, SlackNotifier $slackNotifier)
+    public function store(StoreAttendanceRecordRequest $request, AttendanceRecordService $attendanceRecordService, SlackNotifier $slackNotifier)
     {
         $type = AttendanceType::from($request->validated('type'));
 
@@ -41,20 +41,7 @@ class AttendanceRecordController extends Controller
             AttendanceType::Meeting => ['meeting' => (bool) $request->validated('meeting')],
         };
 
-        try {
-            $record = AttendanceRecord::updateOrCreate(
-                ['date' => $request->validated('date')],
-                $values,
-            );
-        } catch (UniqueConstraintViolationException) {
-            // 같은 날짜에 대한 동시 요청(예: 토글 버튼 연타)으로 행이 이미 생성된 경우 재시도
-            $record = AttendanceRecord::updateOrCreate(
-                ['date' => $request->validated('date')],
-                $values,
-            );
-        }
-
-        $this->deleteIfEmpty($record);
+        $record = $attendanceRecordService->upsert($request->validated('date'), $values);
 
         // 출근/퇴근 등록 시에만 슬랙 알림 발송 (미팅 여부 변경은 제외)
         $message = match ($type) {
@@ -71,7 +58,7 @@ class AttendanceRecordController extends Controller
     }
 
     // 해당 날짜 행의 한 필드만 초기화, 모든 필드가 비면 행 자체를 삭제
-    public function destroy(DestroyAttendanceRecordRequest $request, AttendanceRecord $attendanceRecord)
+    public function destroy(DestroyAttendanceRecordRequest $request, AttendanceRecord $attendanceRecord, AttendanceRecordService $attendanceRecordService)
     {
         $type = AttendanceType::from($request->validated('type'));
 
@@ -82,7 +69,7 @@ class AttendanceRecordController extends Controller
         };
 
         $attendanceRecord->save();
-        $this->deleteIfEmpty($attendanceRecord);
+        $attendanceRecordService->deleteIfEmpty($attendanceRecord);
 
         return response()->noContent();
     }
@@ -111,12 +98,5 @@ class AttendanceRecordController extends Controller
         $start = Carbon::create((int) $request->query('year'), (int) $request->query('month'), 1);
 
         return response()->json($forecastService->predictRange($start, $start->copy()->endOfMonth()));
-    }
-
-    private function deleteIfEmpty(AttendanceRecord $record): void
-    {
-        if ($record->check_in_time === null && $record->check_out_time === null && $record->meeting === false) {
-            $record->delete();
-        }
     }
 }
