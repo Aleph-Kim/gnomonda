@@ -32,7 +32,7 @@ const state = {
     monthForecasts: {}, // date('YYYY-MM-DD') => { check_in_time, check_out_time } | undefined
     selectedDate: null,
     openPicker: null, // null | 'check_in' | 'check_out'
-    pickerSnapshot: null, // pendingTime value to restore on cancel
+    pickerSnapshot: null, // { time, isForecast, explanation } to restore on cancel
     pendingTime: { check_in: null, check_out: null }, // 'HH:MM' | null
     isForecast: { check_in: false, check_out: false }, // pendingTime 값이 예측값인지 여부
     forecastExplanation: { check_in: null, check_out: null }, // 예측 근거 문장 (서버가 완성해서 내려줌)
@@ -243,9 +243,28 @@ function toggleTimePicker(type) {
         state.openPicker = null;
     } else {
         state.openPicker = type;
-        state.pickerSnapshot = state.pendingTime[type];
+        state.pickerSnapshot = {
+            time: state.pendingTime[type],
+            isForecast: state.isForecast[type],
+            explanation: state.forecastExplanation[type],
+        };
+
+        // 모달 기본 선택값은 예측값이 아니라 항상 현재 시간으로 고정
+        const hasRecord = Boolean(recordFor(state.selectedDate)?.[TIME_FIELD[type]]);
+        if (!hasRecord) {
+            state.pendingTime[type] = currentTimeString();
+            state.isForecast[type] = false;
+            state.forecastExplanation[type] = null;
+        }
     }
     render();
+}
+
+function restorePickerSnapshot() {
+    const type = state.openPicker;
+    state.pendingTime[type] = state.pickerSnapshot.time;
+    state.isForecast[type] = state.pickerSnapshot.isForecast;
+    state.forecastExplanation[type] = state.pickerSnapshot.explanation;
 }
 
 function setupWheel(container, values, initialValue, onSettle) {
@@ -323,6 +342,11 @@ function dateString(day) {
 
 function todayString() {
     return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+}
+
+function currentTimeString() {
+    const now = new Date();
+    return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 }
 
 function escapeHtml(str) {
@@ -678,7 +702,7 @@ function render() {
 
     root.querySelectorAll('[data-action="cancel-time"]').forEach((el) => {
         el.addEventListener('click', () => {
-            state.pendingTime[state.openPicker] = state.pickerSnapshot;
+            restorePickerSnapshot();
             state.openPicker = null;
             render();
         });
@@ -687,7 +711,7 @@ function render() {
     root.querySelectorAll('[data-action="close-time-backdrop"]').forEach((el) => {
         el.addEventListener('click', (e) => {
             if (e.target !== el) return;
-            state.pendingTime[state.openPicker] = state.pickerSnapshot;
+            restorePickerSnapshot();
             state.openPicker = null;
             render();
         });
