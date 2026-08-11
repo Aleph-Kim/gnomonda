@@ -38,6 +38,13 @@ class SlackCommandController extends Controller
 
         $now = Carbon::now();
 
+        if ($attendanceRecordService->isAlreadyRegistered($now->format('Y-m-d'), $type)) {
+            return response()->json([
+                'response_type' => 'ephemeral',
+                'text' => sprintf('이미 %s 등록되어 있습니다.', $type === AttendanceType::CheckIn ? '출근' : '퇴근'),
+            ]);
+        }
+
         $values = $type === AttendanceType::CheckIn
             ? ['check_in_time' => $now->format('H:i')]
             : ['check_out_time' => $now->format('H:i')];
