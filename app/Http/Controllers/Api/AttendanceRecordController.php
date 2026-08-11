@@ -9,6 +9,7 @@ use App\Http\Requests\StoreAttendanceRecordRequest;
 use App\Http\Resources\AttendanceRecordResource;
 use App\Models\AttendanceRecord;
 use App\Services\AttendanceForecastService;
+use App\Services\Slack\SlackNotifier;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -30,7 +31,7 @@ class AttendanceRecordController extends Controller
     }
 
     // 해당 날짜 행의 한 필드만 갱신, 나머지 필드는 보존
-    public function store(StoreAttendanceRecordRequest $request)
+    public function store(StoreAttendanceRecordRequest $request, SlackNotifier $slackNotifier)
     {
         $type = AttendanceType::from($request->validated('type'));
 
@@ -54,6 +55,17 @@ class AttendanceRecordController extends Controller
         }
 
         $this->deleteIfEmpty($record);
+
+        // 출근/퇴근 등록 시에만 슬랙 알림 발송 (미팅 여부 변경은 제외)
+        $message = match ($type) {
+            AttendanceType::CheckIn => 'He is coming...',
+            AttendanceType::CheckOut => 'He is gone...',
+            AttendanceType::Meeting => null,
+        };
+
+        if ($message !== null) {
+            $slackNotifier->send($message);
+        }
 
         return AttendanceRecordResource::make($record);
     }
