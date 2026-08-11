@@ -532,6 +532,7 @@ function renderMeetingRow() {
     const record = recordFor(state.selectedDate);
     const active = Boolean(record?.meeting);
 
+    // 노브 span에 left 미지정 시 static position이 오른쪽으로 계산돼 track 밖으로 넘침 (left-0 명시로 고정)
     return `
         <div>
             <p class="mb-1 text-[14px] font-medium text-[#6B6B70]">${TYPE_LABELS.meeting}</p>
@@ -544,7 +545,7 @@ function renderMeetingRow() {
                     data-action="toggle-meeting"
                     class="relative h-7 w-12 shrink-0 rounded-full transition-colors ${active ? 'bg-[#8B5CF6]' : 'bg-[#E0E0E3]'}"
                 >
-                    <span class="absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-transform ${active ? 'translate-x-[22px]' : 'translate-x-0.5'}"></span>
+                    <span class="absolute left-0 top-0.5 h-6 w-6 rounded-full bg-white shadow transition-transform ${active ? 'translate-x-[22px]' : 'translate-x-0.5'}"></span>
                 </button>
             </div>
         </div>
@@ -762,20 +763,27 @@ function render() {
     });
 
     root.querySelectorAll('[data-action="toggle-meeting"]').forEach((el) => {
-        el.addEventListener('click', async () => {
+        el.addEventListener('click', () => {
             // 저장 중 중복 클릭(연타) 시 같은 날짜에 요청이 겹쳐 나가는 것을 막는다.
             if (el.disabled) return;
             el.disabled = true;
 
-            try {
-                const record = recordFor(state.selectedDate);
-                const next = !record?.meeting;
-                await saveRecord(state.selectedDate, 'meeting', next);
-                await loadMonth();
-                await refreshTodaySummary();
-            } finally {
-                el.disabled = false;
-            }
+            const record = recordFor(state.selectedDate);
+            const next = !record?.meeting;
+
+            // 저장 응답을 기다리지 않고 클릭 즉시 클래스를 바꿔 슬라이드 애니메이션 즉시 재생
+            el.setAttribute('aria-checked', String(next));
+            el.classList.toggle('bg-[#8B5CF6]', next);
+            el.classList.toggle('bg-[#E0E0E3]', !next);
+            el.querySelector('span').classList.toggle('translate-x-[22px]', next);
+            el.querySelector('span').classList.toggle('translate-x-0.5', !next);
+
+            saveRecord(state.selectedDate, 'meeting', next)
+                .then(() => loadMonth())
+                .then(() => refreshTodaySummary())
+                .finally(() => {
+                    el.disabled = false;
+                });
         });
     });
 
