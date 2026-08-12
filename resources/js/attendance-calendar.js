@@ -249,9 +249,10 @@ function toggleTimePicker(type) {
             explanation: state.forecastExplanation[type],
         };
 
-        // 모달 기본 선택값은 예측값이 아니라 항상 현재 시간으로 고정
+        // 과거 날짜는 예측값을 기본 선택값으로 유지하고, 예측값이 없거나 과거 날짜가 아니면 현재 시간으로 고정
         const hasRecord = Boolean(recordFor(state.selectedDate)?.[TIME_FIELD[type]]);
-        if (!hasRecord) {
+        const keepForecastAsDefault = isPastDate(state.selectedDate) && state.isForecast[type];
+        if (!hasRecord && !keepForecastAsDefault) {
             state.pendingTime[type] = currentTimeString();
             state.isForecast[type] = false;
             state.forecastExplanation[type] = null;
@@ -348,6 +349,10 @@ function isFutureDate(date) {
     return date > todayString();
 }
 
+function isPastDate(date) {
+    return date < todayString();
+}
+
 function currentTimeString() {
     const now = new Date();
     return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
@@ -421,8 +426,8 @@ function renderCalendarGrid() {
                 </span>
             `;
         } else if (weekday !== 0 && weekday !== 6 && !isHoliday) {
-            // 실제 기록이 없는 평일(공휴일 제외)이면 예측값을 옅은 색으로 미리 보여준다.
-            const forecast = state.monthForecasts[date];
+            // 실제 기록이 없는 평일(공휴일 제외)이면 예측값을 옅은 색으로 미리 보여준다. 과거 날짜는 제외.
+            const forecast = isPastDate(date) ? null : state.monthForecasts[date];
             const forecastIn = forecast?.check_in_time ?? null;
             const forecastOut = forecast?.check_out_time ?? null;
             const forecastColor = isSelected ? 'text-white/50' : 'text-[#8B5CF6]/70';
