@@ -220,4 +220,22 @@ class AttendanceForecastService
 
         return $hour * 60 + $minute;
     }
+
+    // 예측 시간 대비 실제 시간 차이를 사람이 읽을 수 있는 문구로 변환, 예측치가 없으면 null
+    public function compareToActual(?string $predictedTime, string $actualTime): ?string
+    {
+        if ($predictedTime === null) {
+            return null;
+        }
+
+        $diff = $this->toMinutes($actualTime) - $this->toMinutes($predictedTime);
+
+        if ($diff === 0) {
+            return '예상과 동일';
+        }
+
+        return $diff > 0
+            ? "예상보다 {$diff}분 느림"
+            : '예상보다 '.abs($diff).'분 빠름';
+    }
 }

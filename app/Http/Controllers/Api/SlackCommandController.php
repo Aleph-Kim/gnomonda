@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Enums\AttendanceType;
 use App\Http\Controllers\Controller;
+use App\Services\AttendanceForecastService;
 use App\Services\AttendanceRecordService;
 use App\Services\Slack\SlackNotifier;
 use Illuminate\Http\Request;
@@ -11,8 +12,14 @@ use Illuminate\Support\Carbon;
 
 class SlackCommandController extends Controller
 {
+    public function __construct(
+        private readonly AttendanceRecordService $attendanceRecordService,
+        private readonly AttendanceForecastService $attendanceForecastService,
+        private readonly SlackNotifier $slackNotifier,
+    ) {}
+
     // 슬래시 커맨드로 출/퇴근 등록 (/출근, /퇴근), 현재 시각 기준
-    public function handle(Request $request, AttendanceRecordService $attendanceRecordService, SlackNotifier $slackNotifier)
+    public function handle(Request $request)
     {
         $allowedChannelId = config('services.slack.allowed_channel_id');
 
@@ -38,7 +45,7 @@ class SlackCommandController extends Controller
 
         $now = Carbon::now();
 
-        if ($attendanceRecordService->isAlreadyRegistered($now->format('Y-m-d'), $type)) {
+        if ($this->attendanceRecordService->isAlreadyRegistered($now->format('Y-m-d'), $type)) {
             return response()->json([
                 'response_type' => 'ephemeral',
                 'text' => sprintf('이미 %s 등록되어 있습니다.', $type === AttendanceType::CheckIn ? '출근이' : '퇴근이'),
@@ -49,9 +56,14 @@ class SlackCommandController extends Controller
             ? ['check_in_time' => $now->format('H:i')]
             : ['check_out_time' => $now->format('H:i')];
 
-        $attendanceRecordService->upsert($now->format('Y-m-d'), $values);
+        $this->attendanceRecordService->upsert($now->format('Y-m-d'), $values);
 
-        $slackNotifier->send($type === AttendanceType::CheckIn ? 'He is coming...' : 'He is gone...');
+        $forecast = $this->attendanceForecastService->predict($now);
+        $predictedTime = $type === AttendanceType::CheckIn ? $forecast['check_in_time'] : $forecast['check_out_time'];
+        $comparison = $this->attendanceForecastService->compareToActual($predictedTime, $now->format('H:i'));
+
+        $baseMessage = $type === AttendanceType::CheckIn ? 'He is coming...' : 'He is gone...';
+        $this->slackNotifier->send($comparison !== null ? "{$baseMessage}\n{$comparison}" : $baseMessage);
 
         return response()->json([
             'response_type' => 'ephemeral',

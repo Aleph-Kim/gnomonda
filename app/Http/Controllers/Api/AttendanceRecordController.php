@@ -16,6 +16,12 @@ use Illuminate\Support\Carbon;
 
 class AttendanceRecordController extends Controller
 {
+    public function __construct(
+        private readonly AttendanceRecordService $attendanceRecordService,
+        private readonly AttendanceForecastService $attendanceForecastService,
+        private readonly SlackNotifier $slackNotifier,
+    ) {}
+
     public function index(Request $request)
     {
         $year = (int) $request->query('year', now()->year);
@@ -31,7 +37,7 @@ class AttendanceRecordController extends Controller
     }
 
     // 해당 날짜 행의 한 필드만 갱신, 나머지 필드는 보존
-    public function store(StoreAttendanceRecordRequest $request, AttendanceRecordService $attendanceRecordService, SlackNotifier $slackNotifier)
+    public function store(StoreAttendanceRecordRequest $request)
     {
         $type = AttendanceType::from($request->validated('type'));
 
@@ -41,10 +47,10 @@ class AttendanceRecordController extends Controller
             AttendanceType::Meeting => ['meeting' => (bool) $request->validated('meeting')],
         };
 
-        $isFirstRegistration = ! $attendanceRecordService->isAlreadyRegistered($request->validated('date'), $type);
+        $isFirstRegistration = ! $this->attendanceRecordService->isAlreadyRegistered($request->validated('date'), $type);
         $isToday = $request->validated('date') === now()->toDateString();
 
-        $record = $attendanceRecordService->upsert($request->validated('date'), $values);
+        $record = $this->attendanceRecordService->upsert($request->validated('date'), $values);
 
         // 출근/퇴근 당일 최초 등록 시에만 슬랙 알림 발송 (과거 날짜 등록·수정 및 미팅 여부 변경은 제외)
         $message = match ($type) {
@@ -54,14 +60,18 @@ class AttendanceRecordController extends Controller
         };
 
         if ($message !== null && $isFirstRegistration && $isToday) {
-            $slackNotifier->send($message);
+            $forecast = $this->attendanceForecastService->predict(Carbon::today());
+            $predictedTime = $type === AttendanceType::CheckIn ? $forecast['check_in_time'] : $forecast['check_out_time'];
+            $comparison = $this->attendanceForecastService->compareToActual($predictedTime, $request->validated('time'));
+
+            $this->slackNotifier->send($comparison !== null ? "{$message}\n{$comparison}" : $message);
         }
 
         return AttendanceRecordResource::make($record);
     }
 
     // 해당 날짜 행의 한 필드만 초기화, 모든 필드가 비면 행 자체를 삭제
-    public function destroy(DestroyAttendanceRecordRequest $request, AttendanceRecord $attendanceRecord, AttendanceRecordService $attendanceRecordService)
+    public function destroy(DestroyAttendanceRecordRequest $request, AttendanceRecord $attendanceRecord)
     {
         $type = AttendanceType::from($request->validated('type'));
 
@@ -75,12 +85,12 @@ class AttendanceRecordController extends Controller
         };
 
         $attendanceRecord->save();
-        $attendanceRecordService->deleteIfEmpty($attendanceRecord);
+        $this->attendanceRecordService->deleteIfEmpty($attendanceRecord);
 
         return response()->noContent();
     }
 
-    public function forecast(Request $request, AttendanceForecastService $forecastService)
+    public function forecast(Request $request)
     {
         $request->validate([
             'date' => ['nullable', 'date_format:Y-m-d'],
@@ -90,11 +100,11 @@ class AttendanceRecordController extends Controller
             ? Carbon::createFromFormat('Y-m-d', $request->query('date'))
             : Carbon::today();
 
-        return response()->json($forecastService->predict($date));
+        return response()->json($this->attendanceForecastService->predict($date));
     }
 
     // 달력 미리보기용 한 달치 날짜별 예상 출/퇴근 시간
-    public function forecastRange(Request $request, AttendanceForecastService $forecastService)
+    public function forecastRange(Request $request)
     {
         $request->validate([
             'year' => ['required', 'integer'],
@@ -103,6 +113,6 @@ class AttendanceRecordController extends Controller
 
         $start = Carbon::create((int) $request->query('year'), (int) $request->query('month'), 1);
 
-        return response()->json($forecastService->predictRange($start, $start->copy()->endOfMonth()));
+        return response()->json($this->attendanceForecastService->predictRange($start, $start->copy()->endOfMonth()));
     }
 }
